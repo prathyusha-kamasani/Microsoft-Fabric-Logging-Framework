@@ -1,0 +1,805 @@
+# fabric_logging_utils.py
+# Microsoft Fabric Logging Framework - Single File Version 3.3.0
+# Copy this entire file to your Fabric workspace and use directly
+# ========================================================================
+
+import subprocess
+import sys
+import time
+import getpass
+from datetime import datetime, timedelta
+from decimal import Decimal
+from typing import Optional, Union
+
+def ensure_package(package: str, import_name: str = None) -> None:
+    """Install package if missing"""
+    import_name = import_name or package
+    try:
+        __import__(import_name)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+# Dependencies
+ensure_package("semantic-link-labs", "sempy_labs")
+
+import sempy.fabric as fabric
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import current_timestamp, col, year, month, dayofweek, dayofmonth, quarter, weekofyear, date_format
+from pyspark.sql.types import StructType, StructField, StringType, LongType, DecimalType, TimestampType, IntegerType, BooleanType
+
+try:
+    from notebookutils import mssparkutils
+    import notebookutils
+except ImportError:
+    mssparkutils = notebookutils = None
+
+class FabricLogger:
+    """Complete Microsoft Fabric logging framework with automatic semantic model creation"""
+    
+    def __init__(self, project_name: str, force_recreate: bool = False, workspace_name: str = None):
+        self.project_name = project_name
+        self.lakehouse_name = f"LH_{project_name}_Monitoring"
+        self.semantic_model_name = f"SM_{project_name}_Monitoring"
+        self.workspace_id = None
+        self.workspace_name = workspace_name
+        self.lakehouse_id = None 
+        self.log_path = None
+        self.force_recreate = force_recreate
+        self.spark = SparkSession.builder.getOrCreate()
+        
+        print("\n" + "="*60)
+        print("FABRIC LOGGING FRAMEWORK")
+        print("="*60)
+        print(f"\nProject Configuration:")
+        print(f"  • Project Name: {project_name}")
+        print(f"  • Lakehouse: {self.lakehouse_name}")
+        print(f"  • Semantic Model: {self.semantic_model_name}")
+        
+        if force_recreate:
+            print("\nWARNING: Force recreate mode - existing data will be lost!")
+        
+        self._setup()
+    
+    def _setup(self):
+        """Initialize workspace and lakehouse with improved timing"""
+        print("\nINITIALIZING FABRIC LOGGING FRAMEWORK")
+        print("="*60)
+        
+        # Get workspace
+        print("\nWorkspace Detection:")
+        self.workspace_id = fabric.get_notebook_workspace_id()
+        print(f"  • Workspace ID: {self.workspace_id}")
+        
+        # Get workspace name if not provided
+        if not self.workspace_name:
+            try:
+                self.workspace_name = fabric.resolve_workspace_name(self.workspace_id)
+            except:
+                self.workspace_name = "MyWorkspace"
+                print(f"  • Using default workspace name: {self.workspace_name}")
+        else:
+            print(f"  • Using provided workspace: {self.workspace_name}")
+        
+        # Get or create lakehouse
+        print("\nLakehouse Setup:")
+        if notebookutils:
+            self.lakehouse_id = notebookutils.runtime.context.get('defaultLakehouseId')
+            
+            if not self.lakehouse_id:
+                try:
+                    lakehouse = mssparkutils.lakehouse.get(self.lakehouse_name)
+                    self.lakehouse_id = lakehouse['id']
+                    print(f"  Found existing lakehouse: {self.lakehouse_name}")
+                except:
+                    try:
+                        mssparkutils.lakehouse.create(
+                            name=self.lakehouse_name,
+                            description=f"Monitoring lakehouse for {self.project_name} project",
+                            workspaceId=self.workspace_id
+                        )
+                        lakehouse = mssparkutils.lakehouse.get(self.lakehouse_name)
+                        self.lakehouse_id = lakehouse['id']
+                        print(f"  Created new lakehouse: {self.lakehouse_name}")
+                    except Exception as e:
+                        print(f"  Could not create/access lakehouse: {e}")
+                        print("  Using current lakehouse context...")
+                        self.lakehouse_id = "current-context"
+            else:
+                print(f"  Using current lakehouse: {self.lakehouse_id[:8]}...")
+            
+            # Set log path
+            if self.lakehouse_id != "current-context":
+                self.log_path = f"abfss://{self.workspace_id}@onelake.dfs.fabric.microsoft.com/{self.lakehouse_id}/Tables/monitoring_log"
+            else:
+                self.log_path = f"Tables/monitoring_log"
+        
+        # Create or verify all tables
+        print("\nTable Setup:")
+        self._ensure_monitoring_table()
+        self._ensure_date_table()
+        self._ensure_time_table()
+        
+        # Verify tables are ready
+        print("\nVerifying Tables:")
+        tables_ready = self._verify_tables_ready()
+        
+        if tables_ready:
+            print("\nSemantic Model Setup:")
+            semantic_model_created = self._create_semantic_model()
+        else:
+            print("\nSemantic Model Setup Skipped:")
+            print("  Tables not ready. Use create_semantic_model_when_ready() later")
+            semantic_model_created = False
+        
+        # Summary
+        print("\n" + "="*60)
+        print("SETUP COMPLETE")
+        print("="*60)
+        print(f"\nConfiguration Summary:")
+        print(f"  • Project: {self.project_name}")
+        print(f"  • Lakehouse: {self.lakehouse_name}")
+        print(f"  • Semantic Model: {self.semantic_model_name}")
+        print(f"  • Workspace: {self.workspace_name}")
+        
+        if semantic_model_created:
+            print(f"\nAll components verified/created successfully")
+        else:
+            print(f"\nTip: Use logger.create_semantic_model_when_ready() if needed")
+        
+        self._show_quick_status()
+        print("\nReady to log operations! Use: logger.log_operation(...)")
+        print("="*60 + "\n")
+    
+    def _verify_tables_ready(self, max_retries=15, wait_seconds=2):
+        """Verify all tables are accessible before creating semantic model"""
+        tables_to_check = [
+            ("monitoring_log", self.log_path),
+            ("dim_date", self.log_path.replace("/monitoring_log", "/dim_date")),
+            ("dim_time", self.log_path.replace("/monitoring_log", "/dim_time"))
+        ]
+        
+        all_ready = True
+        
+        for table_name, table_path in tables_to_check:
+            table_ready = False
+            print(f"  Checking {table_name}...")
+            
+            for attempt in range(max_retries):
+                try:
+                    df = self.spark.read.format("delta").load(table_path)
+                    row_count = df.count()
+                    print(f"    {table_name}: {row_count:,} rows - Ready")
+                    table_ready = True
+                    break
+                    
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"    {table_name}: Waiting (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_seconds)
+                    else:
+                        print(f"    {table_name}: Not accessible after {max_retries} attempts")
+                        print(f"      Error: {str(e)[:100]}...")
+                        all_ready = False
+                        break
+            
+            if not table_ready:
+                all_ready = False
+        
+        if all_ready:
+            print("  All tables verified and accessible")
+        else:
+            print("  Some tables not ready - semantic model creation will be skipped")
+        
+        return all_ready
+    
+    def _table_exists(self, table_path: str) -> bool:
+        """Check if a Delta table exists at the given path"""
+        try:
+            df = self.spark.read.format("delta").load(table_path)
+            return True
+        except Exception:
+            return False
+    
+    def _ensure_monitoring_table(self):
+        """Create monitoring log table only if it doesn't exist"""
+        if self._table_exists(self.log_path) and not self.force_recreate:
+            try:
+                existing_df = self.spark.read.format("delta").load(self.log_path)
+                record_count = existing_df.count()
+                print(f"  monitoring_log: {record_count:,} existing records preserved")
+                return
+            except Exception as e:
+                print(f"  Error checking table: {e}")
+                print("  Creating new table...")
+        
+        # Create new table
+        schema = StructType([
+            StructField("notebook_name", StringType(), True),
+            StructField("table_name", StringType(), True),
+            StructField("operation_type", StringType(), True),
+            StructField("user_name", StringType(), True),
+            StructField("rows_before", LongType(), True),
+            StructField("rows_after", LongType(), True),
+            StructField("rows_changed", LongType(), True),
+            StructField("execution_time", DecimalType(10, 6), True),
+            StructField("message", StringType(), True),
+            StructField("error_message", StringType(), True),
+            StructField("date_stamp", StringType(), True),
+            StructField("time_stamp", StringType(), True),
+            StructField("timestamp", TimestampType(), True)
+        ])
+        
+        empty_df = self.spark.createDataFrame([], schema)
+        write_mode = "overwrite" if self.force_recreate else "ignore"
+        
+        empty_df.write.format("delta") \
+            .option("mergeSchema", "true") \
+            .mode(write_mode) \
+            .save(self.log_path)
+        
+        print("  monitoring_log: Created new table")
+    
+    def _ensure_date_table(self):
+        """Create or update date dimension table"""
+        try:
+            date_table_path = self.log_path.replace("/monitoring_log", "/dim_date")
+            
+            should_update = False
+            if self._table_exists(date_table_path) and not self.force_recreate:
+                try:
+                    existing_df = self.spark.read.format("delta").load(date_table_path)
+                    max_date = existing_df.agg({"date_key": "max"}).collect()[0][0]
+                    max_date_obj = datetime.strptime(max_date, "%Y-%m-%d")
+                    
+                    days_ahead = (datetime.now() + timedelta(days=365) - max_date_obj).days
+                    
+                    if days_ahead > 0:
+                        print(f"  dim_date: Extending by {days_ahead} days")
+                        should_update = True
+                    else:
+                        record_count = existing_df.count()
+                        print(f"  dim_date: {record_count:,} dates (up to {max_date})")
+                        return
+                except Exception as e:
+                    print(f"  Error checking date table: {e}")
+                    should_update = True
+            else:
+                should_update = True
+            
+            if should_update or self.force_recreate:
+                # Generate date range (2 years back, 2 years forward)
+                start_date = datetime.now() - timedelta(days=730)
+                end_date = datetime.now() + timedelta(days=730)
+                
+                date_list = []
+                current_date = start_date
+                while current_date <= end_date:
+                    date_list.append((current_date.strftime("%Y-%m-%d"),))
+                    current_date += timedelta(days=1)
+                
+                date_df = self.spark.createDataFrame(date_list, ["date_key"])
+                date_df = date_df.withColumn("date_value", col("date_key").cast("date"))
+                
+                date_df = date_df.withColumn("year", year(col("date_value"))) \
+                               .withColumn("month", month(col("date_value"))) \
+                               .withColumn("day", dayofmonth(col("date_value"))) \
+                               .withColumn("quarter", quarter(col("date_value"))) \
+                               .withColumn("week_of_year", weekofyear(col("date_value"))) \
+                               .withColumn("day_of_week", dayofweek(col("date_value"))) \
+                               .withColumn("month_name", date_format(col("date_value"), "MMMM")) \
+                               .withColumn("day_name", date_format(col("date_value"), "EEEE")) \
+                               .withColumn("is_weekend", 
+                                         (dayofweek(col("date_value")).isin([1, 7])).cast("boolean"))
+                
+                if self._table_exists(date_table_path) and not self.force_recreate:
+                    from delta.tables import DeltaTable
+                    
+                    delta_table = DeltaTable.forPath(self.spark, date_table_path)
+                    
+                    delta_table.alias("target").merge(
+                        date_df.alias("source"),
+                        "target.date_key = source.date_key"
+                    ).whenNotMatchedInsertAll().execute()
+                    
+                    print("  dim_date: Updated with new dates")
+                else:
+                    date_df.write.format("delta") \
+                        .option("mergeSchema", "true") \
+                        .mode("overwrite") \
+                        .save(date_table_path)
+                    
+                    print("  dim_date: Created (4 years of dates)")
+            
+        except Exception as e:
+            print(f"  Could not create/update date table: {e}")
+    
+    def _ensure_time_table(self):
+        """Create time dimension table only if it doesn't exist"""
+        try:
+            time_table_path = self.log_path.replace("/monitoring_log", "/dim_time")
+            
+            if self._table_exists(time_table_path) and not self.force_recreate:
+                existing_df = self.spark.read.format("delta").load(time_table_path)
+                record_count = existing_df.count()
+                print(f"  dim_time: {record_count:,} time slots (24 hours)")
+                return
+            
+            time_list = []
+            
+            for hour in range(24):
+                for minute in range(60):
+                    time_key = f"{hour:02d}:{minute:02d}:00"
+                    
+                    if 0 <= hour < 6:
+                        period = "Night"
+                    elif 6 <= hour < 12:
+                        period = "Morning"
+                    elif 12 <= hour < 18:
+                        period = "Afternoon"
+                    else:
+                        period = "Evening"
+                    
+                    is_business_hours = 9 <= hour < 17
+                    
+                    time_list.append((
+                        time_key,
+                        hour,
+                        minute,
+                        f"{hour:02d}:00",
+                        period,
+                        is_business_hours
+                    ))
+            
+            time_schema = StructType([
+                StructField("time_key", StringType(), False),
+                StructField("hour", IntegerType(), False),
+                StructField("minute", IntegerType(), False),
+                StructField("hour_group", StringType(), False),
+                StructField("time_period", StringType(), False),
+                StructField("is_business_hours", BooleanType(), False)
+            ])
+            
+            time_df = self.spark.createDataFrame(time_list, time_schema)
+            
+            write_mode = "overwrite" if self.force_recreate else "ignore"
+            
+            time_df.write.format("delta") \
+                .option("mergeSchema", "true") \
+                .mode(write_mode) \
+                .save(time_table_path)
+            
+            print("  dim_time: Created (1,440 time slots)")
+            
+        except Exception as e:
+            print(f"  Could not create time table: {e}")
+    
+    def _semantic_model_exists(self) -> bool:
+        """Check if semantic model already exists in the workspace"""
+        try:
+            datasets = fabric.list_datasets(workspace=self.workspace_name)
+            
+            if datasets is not None and not datasets.empty:
+                existing_models = datasets['Dataset Name'].tolist()
+                return self.semantic_model_name in existing_models
+            
+            return False
+            
+        except Exception as e:
+            print(f"Could not check for existing semantic model: {e}")
+            return False
+    
+    def _create_semantic_model(self):
+        """Create Direct Lake semantic model with better error handling"""
+        try:
+            from sempy_labs.directlake import generate_direct_lake_semantic_model
+            
+            if self._semantic_model_exists() and not self.force_recreate:
+                print(f"  Semantic model '{self.semantic_model_name}' already exists")
+                print(f"  Tip: Use enhance_semantic_model() to add relationships/measures")
+                return True
+            
+            if self.force_recreate:
+                print(f"  Force recreating: {self.semantic_model_name}")
+            else:
+                print(f"  Creating: {self.semantic_model_name}")
+            
+            lakehouse_name = self.lakehouse_name
+            
+            print(f"    • Lakehouse: {lakehouse_name}")
+            print(f"    • Workspace: {self.workspace_name}")
+            
+            target_tables = ["monitoring_log", "dim_date", "dim_time"]
+            print(f"    • Tables: {', '.join(target_tables)}")
+            
+            # Add a small delay before creating semantic model
+            print("    Ensuring tables are fully committed...")
+            time.sleep(3)
+            
+            result = generate_direct_lake_semantic_model(
+                dataset=self.semantic_model_name,
+                workspace=self.workspace_name,
+                lakehouse=lakehouse_name,
+                lakehouse_tables=target_tables,
+                overwrite=True,
+                refresh=False
+            )
+            
+            print(f"  Direct Lake semantic model created (without refresh)")
+            
+            # Wait a bit more before adding relationships/measures
+            print("    Waiting before adding relationships...")
+            time.sleep(2)
+            
+            print("\n  Adding Relationships...")
+            self._create_semantic_model_relationships()
+            
+            print("\n  Adding Measures...")
+            self._create_semantic_model_measures()
+            
+            # Now try to refresh
+            print("\n  Refreshing semantic model...")
+            try:
+                fabric.refresh_dataset(
+                    dataset=self.semantic_model_name,
+                    workspace=self.workspace_name
+                )
+                print("    Semantic model refreshed successfully")
+            except Exception as refresh_error:
+                print(f"    Refresh failed: {refresh_error}")
+                print("    Model created but needs manual refresh in Power BI")
+            
+            return True
+            
+        except Exception as e:
+            print(f"  Semantic model creation failed: {e}")
+            return False
+    
+    def _create_semantic_model_relationships(self):
+        """Create relationships between tables in the semantic model using TOM"""
+        try:
+            from sempy_labs.tom import connect_semantic_model
+            
+            with connect_semantic_model(
+                dataset=self.semantic_model_name,
+                readonly=False,
+                workspace=self.workspace_name
+            ) as tom_model:
+                
+                # Check existing relationships first
+                existing_relationships = []
+                for rel in tom_model.model.Relationships:
+                    rel_key = f"{rel.FromTable.Name}.{rel.FromColumn.Name}->{rel.ToTable.Name}.{rel.ToColumn.Name}"
+                    existing_relationships.append(rel_key)
+                
+                print(f"    Found {len(existing_relationships)} existing relationships")
+                
+                relationships = [
+                    {
+                        "from_table": "monitoring_log",
+                        "from_column": "date_stamp",
+                        "to_table": "dim_date",
+                        "to_column": "date_key",
+                        "from_cardinality": "Many",
+                        "to_cardinality": "One",
+                        "cross_filtering_behavior": "OneDirection",
+                        "is_active": True
+                    },
+                    {
+                        "from_table": "monitoring_log",
+                        "from_column": "time_stamp",
+                        "to_table": "dim_time", 
+                        "to_column": "time_key",
+                        "from_cardinality": "Many",
+                        "to_cardinality": "One",
+                        "cross_filtering_behavior": "OneDirection",
+                        "is_active": True
+                    }
+                ]
+                
+                relationships_created = 0
+                relationships_skipped = 0
+                
+                for rel in relationships:
+                    rel_key = f"{rel['from_table']}.{rel['from_column']}->{rel['to_table']}.{rel['to_column']}"
+                    
+                    if rel_key in existing_relationships:
+                        print(f"    {rel_key} (already exists)")
+                        relationships_skipped += 1
+                    else:
+                        try:
+                            tom_model.add_relationship(**rel)
+                            print(f"    {rel_key} (created)")
+                            relationships_created += 1
+                        except Exception as e:
+                            print(f"    {rel_key}: {e}")
+                
+                if relationships_created > 0 or relationships_skipped > 0:
+                    print(f"    Summary: Created {relationships_created}, Existing {relationships_skipped}")
+            
+        except ImportError:
+            print("    TOM module not available")
+            print("    Create relationships manually in Power BI")
+        except Exception as e:
+            print(f"    Could not create relationships: {e}")
+    
+    def _create_semantic_model_measures(self):
+        """Create or update measures in the semantic model using TOM"""
+        try:
+            from sempy_labs.tom import connect_semantic_model
+            
+            with connect_semantic_model(
+                dataset=self.semantic_model_name,
+                readonly=False,
+                workspace=self.workspace_name
+            ) as tom_model:
+                
+                measures = [
+                    {'name': 'Total Operations', 'expression': "COUNTROWS(monitoring_log)", 'format_string': "#,##0"},
+                    {'name': 'Total Rows Changed', 'expression': "SUM(monitoring_log[rows_changed])", 'format_string': "#,##0"},
+                    {'name': 'Average Execution Time', 'expression': "AVERAGE(monitoring_log[execution_time])", 'format_string': "#,##0.00 \"seconds\""},
+                    {'name': 'Error Count', 'expression': "CALCULATE(COUNTROWS(monitoring_log), NOT(ISBLANK(monitoring_log[error_message])))", 'format_string': "#,##0"},
+                    {'name': 'Success Rate', 'expression': "DIVIDE(COUNTROWS(FILTER(monitoring_log, ISBLANK(monitoring_log[error_message]))), COUNTROWS(monitoring_log), 0)", 'format_string': "0.0%"},
+                    {'name': 'Operations Today', 'expression': "CALCULATE(COUNTROWS(monitoring_log), monitoring_log[date_stamp] = TODAY())", 'format_string': "#,##0"},
+                    {'name': 'Unique Tables', 'expression': "DISTINCTCOUNT(monitoring_log[table_name])", 'format_string': "#,##0"},
+                    {'name': 'Unique Notebooks', 'expression': "DISTINCTCOUNT(monitoring_log[notebook_name])", 'format_string': "#,##0"}
+                ]
+                
+                # Find the monitoring_log table
+                target_table = None
+                for table in tom_model.model.Tables:
+                    if table.Name == 'monitoring_log':
+                        target_table = table
+                        break
+                
+                if not target_table:
+                    print("    Table 'monitoring_log' not found in model")
+                    return
+                
+                existing_measures = [m.Name for m in target_table.Measures]
+                
+                measures_created = 0
+                measures_updated = 0
+                
+                for measure in measures:
+                    try:
+                        if measure['name'] in existing_measures:
+                            existing_measure = target_table.Measures[measure['name']]
+                            existing_measure.Expression = measure['expression']
+                            existing_measure.FormatString = measure['format_string']
+                            print(f"    Updated: {measure['name']}")
+                            measures_updated += 1
+                        else:
+                            tom_model.add_measure(
+                                table_name='monitoring_log',
+                                measure_name=measure['name'],
+                                expression=measure['expression'],
+                                format_string=measure['format_string']
+                            )
+                            print(f"    Created: {measure['name']}")
+                            measures_created += 1
+                    except Exception as e:
+                        print(f"    {measure['name']}: {e}")
+                
+                if measures_created > 0 or measures_updated > 0:
+                    print(f"    Summary: Created {measures_created}, Updated {measures_updated}")
+            
+        except ImportError:
+            print("    TOM module not available")
+            print("    Create measures manually in Power BI")
+        except Exception as e:
+            print(f"    Could not create/update measures: {e}")
+    
+    def _show_quick_status(self):
+        """Show quick status of all components"""
+        try:
+            print("\nCurrent Status:")
+            
+            df = self.spark.read.format("delta").load(self.log_path)
+            log_count = df.count()
+            
+            date_path = self.log_path.replace("/monitoring_log", "/dim_date")
+            date_df = self.spark.read.format("delta").load(date_path)
+            date_count = date_df.count()
+            
+            time_path = self.log_path.replace("/monitoring_log", "/dim_time")
+            time_df = self.spark.read.format("delta").load(time_path)
+            time_count = time_df.count()
+            
+            print(f"  • Monitoring Logs: {log_count:,} records")
+            print(f"  • Date Dimension: {date_count:,} dates")
+            print(f"  • Time Dimension: {time_count:,} time slots")
+            
+        except Exception as e:
+            print(f"  Could not show status: {e}")
+    
+    def log_operation(self, notebook_name: str, table_name: str, operation_type: str, 
+                     rows_before: int = 0, rows_after: int = 0, execution_time: Union[float, Decimal] = 0.0,
+                     message: str = None, error_message: str = None, user_name: str = None):
+        """Log a data operation - always appends, never overwrites"""
+        
+        now = datetime.now()
+        date_stamp = now.strftime("%Y-%m-%d")
+        time_stamp = now.strftime("%H:%M:%S")
+        
+        log_data = [(
+            notebook_name, table_name, operation_type, user_name or get_current_user(),
+            int(rows_before), int(rows_after), int(rows_after - rows_before),
+            Decimal(str(execution_time)), message, error_message, date_stamp, time_stamp, None
+        )]
+        
+        schema = StructType([
+            StructField("notebook_name", StringType(), True), StructField("table_name", StringType(), True),
+            StructField("operation_type", StringType(), True), StructField("user_name", StringType(), True),
+            StructField("rows_before", LongType(), True), StructField("rows_after", LongType(), True),
+            StructField("rows_changed", LongType(), True), StructField("execution_time", DecimalType(10, 6), True),
+            StructField("message", StringType(), True), StructField("error_message", StringType(), True),
+            StructField("date_stamp", StringType(), True), StructField("time_stamp", StringType(), True),
+            StructField("timestamp", TimestampType(), True)
+        ])
+        
+        log_df = self.spark.createDataFrame(log_data, schema)
+        log_df = log_df.withColumn("timestamp", current_timestamp())
+        
+        log_df.write.format("delta").option("mergeSchema", "true").mode("append").save(self.log_path)
+        
+        print(f"Logged: {operation_type} on {table_name} ({rows_after - rows_before:+,} rows)")
+    
+    def get_logs(self, table_name: str = None, operation_type: str = None, limit: int = 100):
+        """Get monitoring logs with optional filters"""
+        df = self.spark.read.format("delta").load(self.log_path)
+        
+        if table_name:
+            df = df.filter(df.table_name == table_name)
+        if operation_type:
+            df = df.filter(df.operation_type == operation_type)
+        
+        return df.orderBy(df.timestamp.desc()).limit(limit)
+    
+    def show_recent(self, limit: int = 10):
+        """Show recent operations"""
+        self.get_logs(limit=limit).show(truncate=False)
+    
+    def get_statistics(self):
+        """Get statistics about the monitoring logs"""
+        try:
+            df = self.spark.read.format("delta").load(self.log_path)
+            
+            total_records = df.count()
+            unique_notebooks = df.select("notebook_name").distinct().count()
+            unique_tables = df.select("table_name").distinct().count()
+            unique_operations = df.select("operation_type").distinct().count()
+            
+            print(f"\nMonitoring Statistics:")
+            print(f"  Total Records: {total_records:,}")
+            print(f"  Unique Notebooks: {unique_notebooks}")
+            print(f"  Unique Tables: {unique_tables}")
+            print(f"  Unique Operations: {unique_operations}")
+            
+            return {
+                "total_records": total_records,
+                "unique_notebooks": unique_notebooks,
+                "unique_tables": unique_tables,
+                "unique_operations": unique_operations
+            }
+            
+        except Exception as e:
+            print(f"Could not get statistics: {e}")
+            return None
+    
+    def enhance_semantic_model(self):
+        """Add relationships and measures to existing semantic model"""
+        print("\nEnhancing Semantic Model")
+        print("="*40)
+        
+        if not self._semantic_model_exists():
+            print("Semantic model doesn't exist. Create it first with create_semantic_model_when_ready()")
+            return False
+        
+        try:
+            print("Model: " + self.semantic_model_name)
+            
+            self._create_semantic_model_relationships()
+            self._create_semantic_model_measures()
+            
+            try:
+                fabric.refresh_dataset(dataset=self.semantic_model_name, workspace=self.workspace_name)
+                print("Semantic model refreshed after enhancements")
+            except:
+                pass
+            
+            print("Semantic model enhanced successfully!")
+            return True
+            
+        except Exception as e:
+            print(f"Could not enhance semantic model: {e}")
+            return False
+    
+    def create_semantic_model_when_ready(self, max_wait_minutes=5):
+        """Create semantic model after ensuring tables are ready"""
+        print("\nCreating Semantic Model When Ready")
+        print("="*50)
+        
+        max_retries = max_wait_minutes * 6  # Check every 10 seconds
+        
+        for attempt in range(max_retries):
+            print(f"\nAttempt {attempt + 1}/{max_retries}")
+            
+            if self._verify_tables_ready(max_retries=3, wait_seconds=1):
+                print("\nTables ready - creating semantic model...")
+                return self._create_semantic_model()
+            else:
+                if attempt < max_retries - 1:
+                    print(f"Tables not ready, waiting 10 seconds...")
+                    time.sleep(10)
+                else:
+                    print(f"Tables still not ready after {max_wait_minutes} minutes")
+                    return False
+        
+        return False
+    
+    def show_complete_status(self):
+        """Show complete status of the logging framework"""
+        print("\n" + "="*60)
+        print(f"FABRIC LOGGING FRAMEWORK STATUS")
+        print("="*60)
+        
+        print(f"\nProject: {self.project_name}")
+        print(f"Lakehouse: {self.lakehouse_name}")
+        print(f"Semantic Model: {self.semantic_model_name}")
+        print(f"Workspace: {self.workspace_name}")
+        
+        print(f"\nTables Status:")
+        try:
+            df = self.spark.read.format("delta").load(self.log_path)
+            print(f"  monitoring_log: {df.count():,} records")
+            
+            date_path = self.log_path.replace("/monitoring_log", "/dim_date")
+            date_df = self.spark.read.format("delta").load(date_path)
+            max_date = date_df.agg({"date_key": "max"}).collect()[0][0]
+            print(f"  dim_date: {date_df.count():,} dates (up to {max_date})")
+            
+            time_path = self.log_path.replace("/monitoring_log", "/dim_time")
+            time_df = self.spark.read.format("delta").load(time_path)
+            print(f"  dim_time: {time_df.count():,} time slots")
+            
+        except Exception as e:
+            print(f"  Error reading tables: {e}")
+        
+        print(f"\nSemantic Model Status:")
+        if self._semantic_model_exists():
+            print(f"  Model exists: {self.semantic_model_name}")
+        else:
+            print(f"  Model not found: {self.semantic_model_name}")
+            print(f"  Use create_semantic_model_when_ready() to create")
+        
+        print("\n" + "="*60)
+        print("Available Operations:")
+        print("  • logger.log_operation(...) - Log a new operation")
+        print("  • logger.show_recent(10) - Show recent logs")
+        print("  • logger.get_statistics() - Show statistics")
+        print("  • logger.enhance_semantic_model() - Add relationships & measures")
+        print("  • logger.create_semantic_model_when_ready() - Create semantic model safely")
+        print("="*60 + "\n")
+
+# Utility Functions
+def get_current_user() -> str:
+    """Get current user"""
+    try:
+        return getpass.getuser()
+    except:
+        return "fabric_user"
+
+def time_operation(func):
+    """Decorator to time operations"""
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        try:
+            result = func(*args, **kwargs)
+            execution_time = time.time() - start_time
+            return result, execution_time, None
+        except Exception as e:
+            execution_time = time.time() - start_time
+            return None, execution_time, str(e)
+    return wrapper
+
+__version__ = "3.3.0"
