@@ -1,358 +1,525 @@
-# usage_examples.py
-# Complete examples of how to use the Fabric Logging Framework
-# Copy these examples to your Fabric notebooks
+# test_data_creation.py  
+# Generate realistic test data for the Fabric Logging Framework
+# Run this after setting up your logger to populate it with sample data
 
-# First, import the framework
 import builtin.fabric_logging_utils as fabric_logging_utils
 from builtin.fabric_logging_utils import FabricLogger, time_operation
+import random
 from datetime import datetime, timedelta
-import time
 
-# =============================================================================
-# EXAMPLE 1: Basic Setup and Usage
-# =============================================================================
-
-# Create logger - this sets up everything automatically
-logger = FabricLogger("CustomerAnalytics")
-
-# Log a simple operation
-logger.log_operation(
-    notebook_name="DataIngestion",
-    table_name="customers",
-    operation_type="INSERT",
-    rows_before=0,
-    rows_after=10000,
-    execution_time=12.5,
-    message="Initial customer load from CRM"
-)
-
-# Log an error
-logger.log_operation(
-    notebook_name="DataValidation", 
-    table_name="orders",
-    operation_type="VALIDATE",
-    rows_before=5000,
-    rows_after=4850,
-    execution_time=3.2,
-    error_message="150 records failed validation - missing customer_id",
-    message="Validation found data quality issues"
-)
-
-# =============================================================================
-# EXAMPLE 2: Using the Time Decorator
-# =============================================================================
-
-@time_operation
-def load_sales_data():
-    """Example function that loads sales data"""
-    # Simulate data loading
-    import time
-    time.sleep(2)  # Simulate processing
-    return {"rows_loaded": 5000, "status": "success"}
-
-# Execute and log the operation
-result, execution_time, error = load_sales_data()
-
-if error:
-    logger.log_operation(
-        notebook_name="SalesETL",
-        table_name="sales_fact",
-        operation_type="LOAD",
-        execution_time=execution_time,
-        error_message=error
-    )
-else:
-    logger.log_operation(
-        notebook_name="SalesETL", 
-        table_name="sales_fact",
-        operation_type="LOAD",
-        rows_before=0,
-        rows_after=result["rows_loaded"],
-        execution_time=execution_time,
-        message=f"Sales data loaded successfully: {result['status']}"
-    )
-
-# =============================================================================
-# EXAMPLE 3: Monitoring and Reporting
-# =============================================================================
-
-# View recent operations
-print("Recent Operations:")
-logger.show_recent(5)
-
-# Get statistics
-stats = logger.get_statistics()
-print(f"\nCurrent Stats: {stats}")
-
-# Get filtered logs
-print("\nError Operations:")
-error_logs = logger.get_logs(operation_type="VALIDATE")
-error_logs.show()
-
-# Show complete status
-logger.show_complete_status()
-
-# =============================================================================
-# EXAMPLE 4: ETL Pipeline Monitoring
-# =============================================================================
-
-def complete_etl_pipeline():
-    """Example of monitoring a complete ETL pipeline"""
+def create_test_data(logger, num_operations=50):
+    """
+    Generate realistic test data for the logging framework
     
-    # Stage 1: Extract
-    logger.log_operation(
-        notebook_name="ETL_Pipeline",
-        table_name="source_system",
-        operation_type="EXTRACT",
-        rows_before=0,
-        rows_after=50000,
-        execution_time=45.2,
-        message="Extracted data from source system"
-    )
+    Args:
+        logger: FabricLogger instance
+        num_operations: Number of test operations to create
+    """
     
-    # Stage 2: Transform
-    logger.log_operation(
-        notebook_name="ETL_Pipeline",
-        table_name="staging_table", 
-        operation_type="TRANSFORM",
-        rows_before=50000,
-        rows_after=49500,
-        execution_time=120.7,
-        message="Applied business rules and transformations"
-    )
+    print(f"Creating {num_operations} test operations...")
     
-    # Stage 3: Load
-    logger.log_operation(
-        notebook_name="ETL_Pipeline",
-        table_name="data_warehouse",
-        operation_type="LOAD",
-        rows_before=1000000,
-        rows_after=1049500,
-        execution_time=85.3,
-        message="Loaded transformed data to warehouse"
-    )
+    # Sample data for realistic test scenarios
+    notebooks = [
+        "DataIngestion", "ETL_Pipeline", "DataValidation", "DataCleaning",
+        "Analytics_Prep", "ML_Feature_Engineering", "Reporting_ETL",
+        "Data_Quality_Check", "Incremental_Load", "Batch_Processor"
+    ]
     
-    print("ETL Pipeline completed and logged")
+    tables = [
+        "customers", "orders", "products", "sales_fact", "inventory",
+        "transactions", "user_activity", "marketing_campaigns", 
+        "financial_data", "operational_metrics", "customer_segments",
+        "product_catalog", "order_items", "shipping_data", "returns"
+    ]
+    
+    operations = [
+        "INSERT", "UPDATE", "DELETE", "MERGE", "LOAD", "EXTRACT",
+        "TRANSFORM", "VALIDATE", "CLEANSE", "AGGREGATE", "JOIN",
+        "DEDUPLICATE", "QUALITY_CHECK", "REFRESH", "BACKUP"
+    ]
+    
+    success_messages = [
+        "Operation completed successfully",
+        "Data loaded from source system", 
+        "Transformation rules applied",
+        "Quality validation passed",
+        "Incremental update completed",
+        "Batch processing finished",
+        "Data refresh successful",
+        "Merge operation completed",
+        "Validation rules applied",
+        "Cleansing process completed"
+    ]
+    
+    error_messages = [
+        "Connection timeout to source system",
+        "Data validation failed - null values found",
+        "Duplicate key constraint violation", 
+        "Insufficient permissions for table access",
+        "Memory allocation exceeded during join",
+        "Invalid data format in source file",
+        "Schema mismatch between source and target",
+        "Network interruption during data transfer",
+        "Concurrent modification detected",
+        "File not found in expected location"
+    ]
+    
+    # Generate test operations with realistic patterns
+    base_time = datetime.now() - timedelta(days=30)  # Start 30 days ago
+    
+    for i in range(num_operations):
+        # Create realistic timestamp progression
+        operation_time = base_time + timedelta(
+            days=random.randint(0, 30),
+            hours=random.randint(6, 22),  # Business hours mostly
+            minutes=random.randint(0, 59)
+        )
+        
+        # Choose random but realistic values
+        notebook = random.choice(notebooks)
+        table = random.choice(tables)
+        operation = random.choice(operations)
+        
+        # Generate realistic row counts based on table type
+        if table in ["customers", "products", "user_activity"]:
+            base_rows = random.randint(10000, 100000)
+        elif table in ["orders", "transactions", "sales_fact"]:
+            base_rows = random.randint(50000, 500000)
+        else:
+            base_rows = random.randint(1000, 50000)
+        
+        # Calculate rows_before and rows_after based on operation type
+        if operation in ["INSERT", "LOAD", "EXTRACT"]:
+            rows_before = random.randint(0, base_rows // 2)
+            rows_after = rows_before + random.randint(1000, base_rows)
+        elif operation in ["UPDATE", "MERGE", "TRANSFORM"]:
+            rows_before = base_rows
+            rows_after = rows_before + random.randint(-1000, 1000)
+        elif operation in ["DELETE", "CLEANSE"]:
+            rows_before = base_rows
+            rows_after = rows_before - random.randint(10, base_rows // 10)
+        else:  # Validation, quality checks, etc.
+            rows_before = base_rows
+            rows_after = rows_before
+        
+        # Make sure rows_after is not negative
+        rows_after = max(0, rows_after)
+        
+        # Generate realistic execution times based on operation and data size
+        data_factor = (rows_after + rows_before) / 100000  # Scale based on data size
+        base_time_factor = {
+            "INSERT": 2.0, "UPDATE": 3.0, "DELETE": 1.5, "MERGE": 5.0,
+            "LOAD": 4.0, "EXTRACT": 3.0, "TRANSFORM": 6.0, "VALIDATE": 1.0,
+            "CLEANSE": 4.0, "AGGREGATE": 3.0, "JOIN": 8.0, "DEDUPLICATE": 5.0,
+            "QUALITY_CHECK": 2.0, "REFRESH": 1.0, "BACKUP": 10.0
+        }.get(operation, 2.0)
+        
+        execution_time = round(base_time_factor * data_factor * random.uniform(0.5, 2.0), 2)
+        
+        # 90% success rate, 10% errors
+        has_error = random.random() < 0.1
+        
+        if has_error:
+            error_msg = random.choice(error_messages)
+            success_msg = None
+            # Errors might have different row counts
+            if operation in ["INSERT", "LOAD"]:
+                rows_after = rows_before + random.randint(0, (rows_after - rows_before) // 2)
+        else:
+            error_msg = None
+            success_msg = random.choice(success_messages)
+        
+        # Create the log entry with custom timestamp for historical data
+        logger.log_operation(
+            notebook_name=notebook,
+            table_name=table,
+            operation_type=operation,
+            rows_before=rows_before,
+            rows_after=rows_after,
+            execution_time=execution_time,
+            message=success_msg,
+            error_message=error_msg,
+            user_name=random.choice(["alice.smith", "bob.jones", "carol.davis", "david.wilson", "eve.brown"]),
+            custom_timestamp=operation_time  # Use the generated historical timestamp
+        )
+        
+        # Show progress every 10 operations
+        if (i + 1) % 10 == 0:
+            print(f"  Created {i + 1}/{num_operations} operations...")
+    
+    print(f"✅ Created {num_operations} test operations successfully!")
+    return num_operations
 
-# Run the pipeline
-complete_etl_pipeline()
-
-# =============================================================================
-# EXAMPLE 5: Data Quality Monitoring
-# =============================================================================
-
-def monitor_data_quality():
-    """Example of data quality monitoring"""
+def create_realistic_scenarios(logger):
+    """Create specific realistic scenarios for testing"""
     
-    # Read your data (example)
-    # df = spark.read.table("your_table")
+    print("\nCreating realistic test scenarios...")
     
-    # Simulate data quality checks
-    total_records = 10000
-    null_records = 150
-    duplicate_records = 25
+    # Scenario 1: Daily ETL Pipeline
+    print("  Scenario 1: Daily ETL Pipeline")
+    pipeline_operations = [
+        ("DataIngestion", "source_customers", "EXTRACT", 0, 50000, 45.2),
+        ("ETL_Pipeline", "staging_customers", "TRANSFORM", 50000, 49500, 120.7),
+        ("ETL_Pipeline", "dim_customer", "LOAD", 45000, 49500, 85.3),
+        ("DataValidation", "dim_customer", "VALIDATE", 49500, 49500, 12.1)
+    ]
     
-    # Log data quality metrics
+    for notebook, table, operation, before, after, time in pipeline_operations:
+        logger.log_operation(
+            notebook_name=notebook,
+            table_name=table,
+            operation_type=operation,
+            rows_before=before,
+            rows_after=after,
+            execution_time=time,
+            message=f"Daily ETL pipeline step: {operation}"
+        )
+    
+    # Scenario 2: Data Quality Issues
+    print("  Scenario 2: Data Quality Issues")
     logger.log_operation(
         notebook_name="DataQuality",
-        table_name="customer_master",
+        table_name="orders",
         operation_type="QUALITY_CHECK",
-        rows_before=total_records,
-        rows_after=total_records - null_records - duplicate_records,
-        execution_time=8.5,
-        message=f"Quality check: {null_records} nulls, {duplicate_records} duplicates removed"
+        rows_before=100000,
+        rows_after=98500,
+        execution_time=25.4,
+        error_message="1500 records failed validation - missing customer_id",
+        message="Quality check found data issues"
     )
     
-    # Log specific quality issues if found
-    if null_records > 100:
-        logger.log_operation(
-            notebook_name="DataQuality",
-            table_name="customer_master", 
-            operation_type="QUALITY_ALERT",
-            execution_time=0.1,
-            error_message=f"High null count detected: {null_records} records",
-            message="Data quality threshold exceeded"
-        )
-
-monitor_data_quality()
-
-# =============================================================================
-# EXAMPLE 6: Incremental Load Monitoring
-# =============================================================================
-
-def incremental_load_example():
-    """Example of monitoring incremental loads"""
-    
-    from datetime import datetime
-    
-    # Get current counts (simulate)
-    current_count = 1000000
-    new_records = 5000
-    updated_records = 200
-    
-    # Log the incremental load
+    # Scenario 3: Performance Issues
+    print("  Scenario 3: Performance Issues")
     logger.log_operation(
-        notebook_name="IncrementalLoad",
-        table_name="sales_transactions",
-        operation_type="INCREMENTAL_LOAD", 
-        rows_before=current_count,
-        rows_after=current_count + new_records,
-        execution_time=15.7,
-        message=f"Incremental load: {new_records} new, {updated_records} updated"
+        notebook_name="Analytics_Prep",
+        table_name="sales_fact",
+        operation_type="AGGREGATE",
+        rows_before=5000000,
+        rows_after=50000,
+        execution_time=450.8,
+        message="Monthly aggregation - performance was slower than usual"
     )
     
-    # Log merge operation
+    # Scenario 4: Incremental Load
+    print("  Scenario 4: Incremental Load")
     logger.log_operation(
-        notebook_name="IncrementalLoad",
-        table_name="sales_transactions",
+        notebook_name="Incremental_Load",
+        table_name="transactions",
         operation_type="MERGE",
-        rows_before=current_count + new_records,
-        rows_after=current_count + new_records,  # No net change after merge
-        execution_time=22.3,
-        message=f"Merged changes: {updated_records} records updated in place"
+        rows_before=2000000,
+        rows_after=2005000,
+        execution_time=67.2,
+        message="Incremental load: 5000 new transactions merged"
     )
-
-incremental_load_example()
-
-# =============================================================================
-# EXAMPLE 7: Advanced Semantic Model Management
-# =============================================================================
-
-# If semantic model creation failed during initial setup, retry it
-if not logger._semantic_model_exists():
-    print("Semantic model not found, creating it...")
-    success = logger.create_semantic_model_when_ready(max_wait_minutes=3)
-    if success:
-        print("Semantic model created successfully!")
-    else:
-        print("Could not create semantic model - check table readiness")
-
-# Add relationships and measures to existing model
-logger.enhance_semantic_model()
-
-# =============================================================================
-# EXAMPLE 8: Batch Processing Monitoring
-# =============================================================================
-
-def batch_processing_example():
-    """Example of monitoring batch processing jobs"""
     
-    batch_id = f"BATCH_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    
-    # Process multiple tables in batch
-    tables_to_process = [
-        {"name": "customers", "records": 50000},
-        {"name": "orders", "records": 200000}, 
-        {"name": "products", "records": 10000}
-    ]
-    
-    for table_info in tables_to_process:
-        table_name = table_info["name"]
-        record_count = table_info["records"]
-        
-        # Simulate processing time based on record count
-        processing_time = record_count / 10000  # Rough estimate
-        
-        logger.log_operation(
-            notebook_name="BatchProcessor",
-            table_name=table_name,
-            operation_type="BATCH_PROCESS",
-            rows_before=0,
-            rows_after=record_count,
-            execution_time=processing_time,
-            message=f"Batch {batch_id} - Processed {table_name}"
-        )
-    
-    # Log batch completion
+    # Scenario 5: System Recovery
+    print("  Scenario 5: System Recovery")
     logger.log_operation(
         notebook_name="BatchProcessor",
-        table_name="batch_control",
-        operation_type="BATCH_COMPLETE",
-        execution_time=sum(table["records"] for table in tables_to_process) / 10000,
-        message=f"Batch {batch_id} completed - {len(tables_to_process)} tables processed"
+        table_name="product_catalog",
+        operation_type="BACKUP",
+        rows_before=25000,
+        rows_after=25000,
+        execution_time=180.5,
+        message="Nightly backup completed successfully"
     )
-
-batch_processing_example()
-
-# =============================================================================
-# EXAMPLE 9: Error Handling and Recovery
-# =============================================================================
-
-def error_handling_example():
-    """Example of proper error handling with logging"""
     
-    try:
-        # Simulate an operation that might fail
-        # df = spark.read.table("might_not_exist")
-        raise Exception("Table not found: source_data")
-        
-    except Exception as e:
-        # Log the error
-        logger.log_operation(
-            notebook_name="ErrorHandling",
-            table_name="source_data",
-            operation_type="READ",
-            execution_time=0.5,
-            error_message=str(e),
-            message="Failed to read source table"
-        )
-        
-        # Log recovery action
-        logger.log_operation(
-            notebook_name="ErrorHandling", 
-            table_name="backup_source",
-            operation_type="FALLBACK",
-            rows_after=25000,
-            execution_time=5.2,
-            message="Switched to backup data source after primary failure"
-        )
+    print("✅ Realistic scenarios created!")
 
-error_handling_example()
-
-# =============================================================================
-# EXAMPLE 10: Performance Monitoring
-# =============================================================================
-
-def performance_monitoring_example():
-    """Example of monitoring performance across operations"""
+def generate_time_series_data(logger, days=7):
+    """Generate time series data showing daily patterns"""
     
-    # Log different operation types with varying performance
-    operations = [
-        {"type": "SELECT", "time": 2.1, "rows": 50000},
-        {"type": "JOIN", "time": 15.7, "rows": 75000},
-        {"type": "AGGREGATE", "time": 8.3, "rows": 1000},
-        {"type": "SORT", "time": 12.4, "rows": 75000}
+    print(f"\nGenerating time series data for {days} days...")
+    
+    # Common operations that happen daily
+    daily_operations = [
+        ("DailyETL", "customers", "REFRESH", 50000, 51000, 30.0),
+        ("DailyETL", "orders", "INCREMENTAL_LOAD", 200000, 205000, 45.0),
+        ("DailyETL", "products", "UPDATE", 25000, 25000, 15.0),
+        ("Analytics", "sales_fact", "AGGREGATE", 1000000, 1005000, 120.0),
+        ("Reporting", "dashboard_data", "REFRESH", 100000, 100000, 60.0)
     ]
     
-    for op in operations:
+    base_date = datetime.now() - timedelta(days=days)
+    
+    for day in range(days):
+        current_date = base_date + timedelta(days=day)
+        
+        # Skip weekends for some operations (realistic pattern)
+        is_weekend = current_date.weekday() >= 5
+        
+        for notebook, table, operation, before, after, base_time in daily_operations:
+            # Some operations don't run on weekends
+            if is_weekend and operation in ["INCREMENTAL_LOAD", "AGGREGATE"]:
+                continue
+            
+            # Add some variation to the execution times
+            execution_time = base_time * random.uniform(0.8, 1.3)
+            
+            # Add some variation to row counts
+            variation = random.uniform(0.95, 1.05)
+            rows_before = int(before * variation)
+            rows_after = int(after * variation)
+            
+            logger.log_operation(
+                notebook_name=notebook,
+                table_name=table,
+                operation_type=operation,
+                rows_before=rows_before,
+                rows_after=rows_after,
+                execution_time=execution_time,
+                message=f"Daily {operation.lower()} for {current_date.strftime('%Y-%m-%d')}"
+            )
+    
+    print(f"✅ Generated {days} days of time series data!")
+
+def create_error_patterns(logger):
+    """Create realistic error patterns for testing"""
+    
+    print("\nCreating error patterns...")
+    
+    # Common error scenarios
+    error_scenarios = [
+        {
+            "notebook": "DataIngestion",
+            "table": "external_api_data", 
+            "operation": "EXTRACT",
+            "error": "API rate limit exceeded - 429 status code",
+            "execution_time": 5.0
+        },
+        {
+            "notebook": "ETL_Pipeline",
+            "table": "sales_staging",
+            "operation": "TRANSFORM", 
+            "error": "Column 'price' contains non-numeric values",
+            "execution_time": 15.3
+        },
+        {
+            "notebook": "DataValidation",
+            "table": "customer_data",
+            "operation": "VALIDATE",
+            "error": "Primary key constraint violation - duplicate IDs found",
+            "execution_time": 8.7
+        },
+        {
+            "notebook": "ML_Pipeline",
+            "table": "feature_store",
+            "operation": "LOAD",
+            "error": "Out of memory during feature calculation",
+            "execution_time": 45.2
+        },
+        {
+            "notebook": "Reporting",
+            "table": "dashboard_cache",
+            "operation": "REFRESH",
+            "error": "Timeout connecting to source database",
+            "execution_time": 120.0
+        }
+    ]
+    
+    for scenario in error_scenarios:
         logger.log_operation(
-            notebook_name="PerformanceTest",
-            table_name="performance_test",
-            operation_type=op["type"],
-            rows_after=op["rows"],
-            execution_time=op["time"],
-            message=f"Performance test: {op['type']} operation"
+            notebook_name=scenario["notebook"],
+            table_name=scenario["table"],
+            operation_type=scenario["operation"],
+            execution_time=scenario["execution_time"],
+            error_message=scenario["error"],
+            message="Operation failed - see error details"
         )
     
-    # Check if any operations were slow
-    slow_threshold = 10.0  # seconds
-    for op in operations:
-        if op["time"] > slow_threshold:
+    print(f"✅ Created {len(error_scenarios)} error scenarios!")
+
+def create_performance_benchmarks(logger):
+    """Create performance benchmark data for testing"""
+    
+    print("\nCreating performance benchmarks...")
+    
+    # Different table sizes and their expected performance
+    performance_tests = [
+        ("Small Dataset", "test_small", 1000, 2.1),
+        ("Medium Dataset", "test_medium", 50000, 15.7), 
+        ("Large Dataset", "test_large", 1000000, 120.3),
+        ("Very Large Dataset", "test_xlarge", 10000000, 450.8)
+    ]
+    
+    test_operations = ["SELECT", "JOIN", "AGGREGATE", "SORT", "MERGE"]
+    
+    for dataset_name, table_name, record_count, base_time in performance_tests:
+        for operation in test_operations:
+            # Calculate realistic execution time based on operation complexity
+            complexity_factor = {
+                "SELECT": 1.0,
+                "JOIN": 3.0, 
+                "AGGREGATE": 2.0,
+                "SORT": 2.5,
+                "MERGE": 4.0
+            }.get(operation, 1.0)
+            
+            execution_time = base_time * complexity_factor * random.uniform(0.8, 1.2)
+            
             logger.log_operation(
-                notebook_name="PerformanceTest",
-                table_name="performance_alerts",
-                operation_type="PERFORMANCE_ALERT",
-                execution_time=0.1,
-                message=f"Slow operation detected: {op['type']} took {op['time']}s"
+                notebook_name="PerformanceTesting",
+                table_name=table_name,
+                operation_type=operation,
+                rows_before=record_count,
+                rows_after=record_count,
+                execution_time=execution_time,
+                message=f"Performance test: {operation} on {dataset_name} ({record_count:,} records)"
             )
+    
+    print("✅ Performance benchmarks created!")
 
-performance_monitoring_example()
+# =============================================================================
+# MAIN TEST DATA CREATION FUNCTION
+# =============================================================================
 
-print("\n" + "="*60)
-print("ALL EXAMPLES COMPLETED")
-print("="*60)
-print("Check your monitoring logs with:")
-print("  logger.show_recent(20)")
-print("  logger.get_statistics()")
-print("  logger.show_complete_status()")
-print("="*60)
+def setup_complete_test_environment(project_name="TestProject"):
+    """Set up a complete test environment with realistic data"""
+    
+    print("="*60)
+    print("FABRIC LOGGING FRAMEWORK - TEST DATA SETUP")
+    print("="*60)
+    
+    # Initialize the logger with custom project name
+    logger = FabricLogger(project_name)
+    
+    print("\nGenerating comprehensive test data...")
+    
+    # 1. Create basic test operations
+    create_test_data(logger, num_operations=30)
+    
+    # 2. Create realistic scenarios
+    create_realistic_scenarios(logger)
+    
+    # 3. Generate time series data
+    generate_time_series_data(logger, days=14)
+    
+    # 4. Create error patterns
+    create_error_patterns(logger)
+    
+    # 5. Create performance benchmarks
+    create_performance_benchmarks(logger)
+    
+    print("\n" + "="*60)
+    print("TEST DATA CREATION COMPLETE")
+    print("="*60)
+    
+    # Show final statistics
+    stats = logger.get_statistics()
+    print(f"\nFinal Statistics:")
+    print(f"  Total Operations: {stats['total_records']:,}")
+    print(f"  Unique Notebooks: {stats['unique_notebooks']}")
+    print(f"  Unique Tables: {stats['unique_tables']}")
+    print(f"  Unique Operations: {stats['unique_operations']}")
+    
+    print(f"\nYou can now:")
+    print(f"  • View recent logs: logger.show_recent(20)")
+    print(f"  • Check statistics: logger.get_statistics()")
+    print(f"  • Enhance semantic model: logger.enhance_semantic_model()")
+    print(f"  • View complete status: logger.show_complete_status()")
+    
+    return logger
+
+# =============================================================================
+# QUICK TEST FUNCTIONS
+# =============================================================================
+
+def quick_test(project_name="QuickTest"):
+    """Quick test with minimal data for immediate verification"""
+    
+    print("Running quick test...")
+    
+    logger = FabricLogger(project_name)
+    
+    # Create just a few test operations
+    test_operations = [
+        ("TestNotebook", "customers", "INSERT", 0, 1000, 5.2, "Test insert operation"),
+        ("TestNotebook", "orders", "UPDATE", 5000, 5100, 8.7, "Test update operation"),
+        ("TestNotebook", "products", "VALIDATE", 2000, 2000, 3.1, None),
+        ("TestNotebook", "sales", "MERGE", 10000, 10500, 12.4, "Test merge operation"),
+        ("TestNotebook", "inventory", "DELETE", 500, 450, 2.8, None)
+    ]
+    
+    for notebook, table, operation, before, after, time, message in test_operations:
+        logger.log_operation(
+            notebook_name=notebook,
+            table_name=table,
+            operation_type=operation,
+            rows_before=before,
+            rows_after=after,
+            execution_time=time,
+            message=message
+        )
+    
+    print("✅ Quick test completed!")
+    logger.show_recent(10)
+    
+    return logger
+
+def performance_test_only():
+    """Run only performance-focused tests"""
+    
+    logger = FabricLogger("PerformanceTest") 
+    create_performance_benchmarks(logger)
+    
+    print("\nPerformance test completed!")
+    logger.show_recent(15)
+    
+    return logger
+
+def error_test_only():
+    """Run only error scenario tests"""
+    
+    logger = FabricLogger("ErrorTest")
+    create_error_patterns(logger)
+    
+    print("\nError test completed!")
+    logger.show_recent(10)
+    
+    return logger
+
+# =============================================================================
+# USAGE INSTRUCTIONS
+# =============================================================================
+
+if __name__ == "__main__":
+    print("""
+    Fabric Logging Framework - Test Data Creation
+    
+    Available functions:
+    
+    1. setup_complete_test_environment()
+       - Creates comprehensive test data with all scenarios
+       - Best for full framework testing
+    
+    2. quick_test("ProjectName")  
+       - Creates minimal test data for quick verification
+       - Best for initial setup testing
+    
+    3. performance_test_only()
+       - Creates only performance benchmark data
+       - Best for performance analysis testing
+    
+    4. error_test_only()
+       - Creates only error scenario data  
+       - Best for error handling testing
+    
+    5. create_test_data(logger, num_operations)
+       - Create custom number of random operations
+       - Use with existing logger instance
+    
+    Example usage:
+        # Quick test
+        logger = quick_test("MyProject")
+        
+        # Full test environment  
+        logger = setup_complete_test_environment()
+        
+        # Custom test
+        logger = FabricLogger("CustomTest")
+        create_test_data(logger, 100)
+    """)
+    
+    # Uncomment one of these to run automatically:
+    # logger = quick_test()
+    # logger = setup_complete_test_environment()
