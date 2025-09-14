@@ -2,7 +2,8 @@
 # Generate realistic test data for the Fabric Logging Framework
 # Run this after setting up your logger to populate it with sample data
 
-from fabric_logging_utils import FabricLogger
+import builtin.fabric_logging_utils as fabric_logging_utils
+from builtin.fabric_logging_utils import FabricLogger, time_operation
 import random
 from datetime import datetime, timedelta
 
