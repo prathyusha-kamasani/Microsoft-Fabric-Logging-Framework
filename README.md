@@ -12,7 +12,8 @@ A simple, single-file logging framework for Microsoft Fabric that automatically 
 
 ```python
 # Import the framework
-from fabric_logging_utils import FabricLogger
+import builtin.fabric_logging_utils as fabric_logging_utils
+from builtin.fabric_logging_utils import FabricLogger
 
 # Create logger (automatically sets up everything)
 logger = FabricLogger("MyProject")
