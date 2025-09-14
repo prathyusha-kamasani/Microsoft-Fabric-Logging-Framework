@@ -7,6 +7,9 @@ A simple, single-file logging framework for Microsoft Fabric that automatically 
 1. **Copy the file**: Download `fabric_logging_utils.py` and upload it to your Fabric Notebook Resources Folder
 2. **Import and use**: Start logging your operations immediately
 
+<img width="704" height="454" alt="image" src="https://github.com/user-attachments/assets/83436910-3379-4e16-8e8e-fb12e5ba8f94" />
+
+
 ```python
 # Import the framework
 from fabric_logging_utils import FabricLogger
