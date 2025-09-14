@@ -372,15 +372,15 @@ def create_performance_benchmarks(logger):
 # MAIN TEST DATA CREATION FUNCTION
 # =============================================================================
 
-def setup_complete_test_environment():
+def setup_complete_test_environment(project_name="TestProject"):
     """Set up a complete test environment with realistic data"""
     
     print("="*60)
     print("FABRIC LOGGING FRAMEWORK - TEST DATA SETUP")
     print("="*60)
     
-    # Initialize the logger
-    logger = FabricLogger("TestProject")
+    # Initialize the logger with custom project name
+    logger = FabricLogger(project_name)
     
     print("\nGenerating comprehensive test data...")
     
