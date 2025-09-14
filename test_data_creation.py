@@ -129,7 +129,7 @@ def create_test_data(logger, num_operations=50):
             error_msg = None
             success_msg = random.choice(success_messages)
         
-        # Create the log entry (but don't use the actual timestamp - let the logger set it)
+        # Create the log entry with custom timestamp for historical data
         logger.log_operation(
             notebook_name=notebook,
             table_name=table,
@@ -139,7 +139,8 @@ def create_test_data(logger, num_operations=50):
             execution_time=execution_time,
             message=success_msg,
             error_message=error_msg,
-            user_name=random.choice(["alice.smith", "bob.jones", "carol.davis", "david.wilson", "eve.brown"])
+            user_name=random.choice(["alice.smith", "bob.jones", "carol.davis", "david.wilson", "eve.brown"]),
+            custom_timestamp=operation_time  # Use the generated historical timestamp
         )
         
         # Show progress every 10 operations
