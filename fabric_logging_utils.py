@@ -534,15 +534,18 @@ class FabricLogger:
             ) as tom_model:
                 
                 measures = [
-                    {'name': 'Total Operations', 'expression': "COUNTROWS(monitoring_log)", 'format_string': "#,##0"},
-                    {'name': 'Total Rows Changed', 'expression': "SUM(monitoring_log[rows_changed])", 'format_string': "#,##0"},
-                    {'name': 'Average Execution Time', 'expression': "AVERAGE(monitoring_log[execution_time])", 'format_string': "#,##0.00 \"seconds\""},
-                    {'name': 'Error Count', 'expression': "CALCULATE(COUNTROWS(monitoring_log), NOT(ISBLANK(monitoring_log[error_message])))", 'format_string': "#,##0"},
-                    {'name': 'Success Rate', 'expression': "DIVIDE(COUNTROWS(FILTER(monitoring_log, ISBLANK(monitoring_log[error_message]))), COUNTROWS(monitoring_log), 0)", 'format_string': "0.0%"},
-                    {'name': 'Operations Today', 'expression': "CALCULATE(COUNTROWS(monitoring_log), monitoring_log[date_stamp] = TODAY())", 'format_string': "#,##0"},
-                    {'name': 'Unique Tables', 'expression': "DISTINCTCOUNT(monitoring_log[table_name])", 'format_string': "#,##0"},
-                    {'name': 'Unique Notebooks', 'expression': "DISTINCTCOUNT(monitoring_log[notebook_name])", 'format_string': "#,##0"}
+                    {'name': 'Total Operations', 'expression': "COUNTROWS(monitoring_log)", 'format_string': "#,##0", 'display_folder': "Core Metrics"},
+                    {'name': 'Total Rows Changed', 'expression': "SUM(monitoring_log[rows_changed])", 'format_string': "#,##0", 'display_folder': "Core Metrics"},
+                    {'name': 'Average Execution Time', 'expression': "AVERAGE(monitoring_log[execution_time])", 'format_string': "#,##0.00 \"seconds\"", 'display_folder': "Performance Metrics"},
+                    {'name': 'Error Count', 'expression': "CALCULATE(COUNTROWS(monitoring_log), NOT(ISBLANK(monitoring_log[error_message])))", 'format_string': "#,##0", 'display_folder': "Quality Metrics"},
+                    {'name': 'Success Rate', 'expression': "DIVIDE(COUNTROWS(FILTER(monitoring_log, ISBLANK(monitoring_log[error_message]))), COUNTROWS(monitoring_log), 0)", 'format_string': "0.0%", 'display_folder': "Quality Metrics"},
+                    {'name': 'Operations Today', 'expression': "CALCULATE(COUNTROWS(monitoring_log), monitoring_log[date_stamp] = TODAY())", 'format_string': "#,##0", 'display_folder': "Time Intelligence"},
+                    {'name': 'Unique Tables', 'expression': "DISTINCTCOUNT(monitoring_log[table_name])", 'format_string': "#,##0", 'display_folder': "Core Metrics"},
+                    {'name': 'Unique Notebooks', 'expression': "DISTINCTCOUNT(monitoring_log[notebook_name])", 'format_string': "#,##0", 'display_folder': "Core Metrics"}
                 ]
+                
+                # First, set proper data types and formatting for all tables
+                self._configure_table_data_types(tom_model)
                 
                 # Find the monitoring_log table
                 target_table = None
@@ -566,6 +569,7 @@ class FabricLogger:
                             existing_measure = target_table.Measures[measure['name']]
                             existing_measure.Expression = measure['expression']
                             existing_measure.FormatString = measure['format_string']
+                            existing_measure.DisplayFolder = measure['display_folder']
                             print(f"    Updated: {measure['name']}")
                             measures_updated += 1
                         else:
@@ -573,7 +577,8 @@ class FabricLogger:
                                 table_name='monitoring_log',
                                 measure_name=measure['name'],
                                 expression=measure['expression'],
-                                format_string=measure['format_string']
+                                format_string=measure['format_string'],
+                                display_folder=measure['display_folder']
                             )
                             print(f"    Created: {measure['name']}")
                             measures_created += 1
@@ -588,6 +593,105 @@ class FabricLogger:
             print("    Create measures manually in Power BI")
         except Exception as e:
             print(f"    Could not create/update measures: {e}")
+    
+    def _configure_table_data_types(self, tom_model):
+        """Configure proper data types and formatting for all tables"""
+        try:
+            print("    Configuring data types and formatting...")
+            
+            # Import the required enums for data types
+            from Microsoft.AnalysisServices.Tabular import DataType
+            
+            # Configure dim_date table - Mark as date table with proper data types
+            date_table = None
+            for table in tom_model.model.Tables:
+                if table.Name == 'dim_date':
+                    date_table = table
+                    break
+            
+            if date_table:
+                # Mark table as date table
+                try:
+                    date_table.DataCategory = 'Time'
+                    print("    Marked dim_date as date table")
+                except:
+                    pass
+                
+                # Configure date columns with proper data types
+                for column in date_table.Columns:
+                    try:
+                        if column.Name == 'date_key':
+                            # Keep as String to match monitoring_log.date_stamp relationship
+                            column.DataType = DataType.String
+                            column.FormatString = None
+                            column.IsKey = True
+                            print(f"      Set {column.Name} as String key column (for relationship compatibility)")
+                        elif column.Name == 'date_value':
+                            # This can be DateTime since it's not used in relationships
+                            column.DataType = DataType.DateTime
+                            column.FormatString = 'mm/dd/yyyy'
+                            print(f"      Set {column.Name} as DateTime")
+                        elif column.Name in ['year', 'month', 'day', 'quarter', 'week_of_year', 'day_of_week']:
+                            column.DataType = DataType.Int64
+                            column.FormatString = '0'
+                        elif column.Name in ['month_name', 'day_name']:
+                            column.DataType = DataType.String
+                        elif column.Name == 'is_weekend':
+                            column.DataType = DataType.Boolean
+                    except Exception as e:
+                        print(f"      Warning: Could not configure {column.Name}: {e}")
+            
+            # Configure monitoring_log table
+            monitoring_table = None
+            for table in tom_model.model.Tables:
+                if table.Name == 'monitoring_log':
+                    monitoring_table = table
+                    break
+            
+            if monitoring_table:
+                for column in monitoring_table.Columns:
+                    try:
+                        if column.Name in ['rows_before', 'rows_after', 'rows_changed']:
+                            column.DataType = DataType.Int64
+                            column.FormatString = '#,##0'
+                        elif column.Name == 'execution_time':
+                            column.DataType = DataType.Double
+                            column.FormatString = '#,##0.00'
+                        elif column.Name == 'timestamp':
+                            column.DataType = DataType.DateTime
+                            column.FormatString = 'mm/dd/yyyy h:mm:ss AM/PM'
+                        elif column.Name in ['notebook_name', 'table_name', 'operation_type', 'user_name', 'message', 'error_message', 'date_stamp', 'time_stamp']:
+                            column.DataType = DataType.String
+                    except Exception as e:
+                        print(f"      Warning: Could not configure {column.Name}: {e}")
+            
+            # Configure dim_time table
+            time_table = None
+            for table in tom_model.model.Tables:
+                if table.Name == 'dim_time':
+                    time_table = table
+                    break
+            
+            if time_table:
+                for column in time_table.Columns:
+                    try:
+                        if column.Name in ['hour', 'minute']:
+                            column.DataType = DataType.Int64
+                            column.FormatString = '0'
+                        elif column.Name in ['time_key', 'hour_group', 'time_period']:
+                            column.DataType = DataType.String
+                        elif column.Name == 'is_business_hours':
+                            column.DataType = DataType.Boolean
+                    except Exception as e:
+                        print(f"      Warning: Could not configure {column.Name}: {e}")
+            
+            print("    Data types and formatting configured successfully")
+            
+        except ImportError as e:
+            print(f"    Could not import DataType enum: {e}")
+            print("    Skipping data type configuration")
+        except Exception as e:
+            print(f"    Could not configure data types: {e}")
     
     def _show_quick_status(self):
         """Show quick status of all components"""
@@ -614,10 +718,16 @@ class FabricLogger:
     
     def log_operation(self, notebook_name: str, table_name: str, operation_type: str, 
                      rows_before: int = 0, rows_after: int = 0, execution_time: Union[float, Decimal] = 0.0,
-                     message: str = None, error_message: str = None, user_name: str = None):
+                     message: str = None, error_message: str = None, user_name: str = None, 
+                     custom_timestamp: datetime = None):
         """Log a data operation - always appends, never overwrites"""
         
-        now = datetime.now()
+        # Use custom timestamp if provided, otherwise use current time
+        if custom_timestamp:
+            now = custom_timestamp
+        else:
+            now = datetime.now()
+            
         date_stamp = now.strftime("%Y-%m-%d")
         time_stamp = now.strftime("%H:%M:%S")
         
@@ -638,11 +748,16 @@ class FabricLogger:
         ])
         
         log_df = self.spark.createDataFrame(log_data, schema)
-        log_df = log_df.withColumn("timestamp", current_timestamp())
+        # Use custom timestamp for the timestamp column as well
+        if custom_timestamp:
+            from pyspark.sql.functions import lit
+            log_df = log_df.withColumn("timestamp", lit(custom_timestamp))
+        else:
+            log_df = log_df.withColumn("timestamp", current_timestamp())
         
         log_df.write.format("delta").option("mergeSchema", "true").mode("append").save(self.log_path)
         
-        print(f"Logged: {operation_type} on {table_name} ({rows_after - rows_before:+,} rows)")
+        print(f"Logged: {operation_type} on {table_name} ({rows_after - rows_before:+,} rows) [{date_stamp}]")
     
     def get_logs(self, table_name: str = None, operation_type: str = None, limit: int = 100):
         """Get monitoring logs with optional filters"""
