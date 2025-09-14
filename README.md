@@ -1,14 +1,11 @@
-# Microsoft Fabric Logging Framework
+# Microsoft Fabric Logging Framework v3.3.0
 
 A simple, single-file logging framework for Microsoft Fabric that automatically creates monitoring infrastructure with semantic models and relationships.
 
 ## Quick Start
 
-1. **Copy the file**: Download `fabric_logging_utils.py` and upload it to your Fabric Notebook Resources Folder
+1. **Copy the file**: Download `fabric_logging_utils.py` and upload it to your Fabric workspace's `builtin` folder
 2. **Import and use**: Start logging your operations immediately
-
-<img width="704" height="454" alt="image" src="https://github.com/user-attachments/assets/83436910-3379-4e16-8e8e-fb12e5ba8f94" />
-
 
 ```python
 # Import the framework
@@ -38,19 +35,41 @@ logger.show_recent(10)
 - **Lakehouse**: `LH_{ProjectName}_Monitoring`
 - **Tables**:
   - `monitoring_log` - Main fact table with all operations
-  - `dim_date` - Date dimension (4 years of dates)
+  - `dim_date` - Date dimension (4 years of dates) with proper DateTime types
   - `dim_time` - Time dimension (hourly breakdown)
 - **Semantic Model**: `SM_{ProjectName}_Monitoring` with:
   - Relationships between fact and dimension tables
-  - 8 pre-built DAX measures for monitoring
+  - 8 pre-built DAX measures organized in folders
+  - Proper data types for all columns
+
+## New in v3.3.0
+
+### Enhanced Semantic Model Features
+- **Measure Folders**: Automatically organizes measures into logical folders:
+  - **Core Metrics**: Total Operations, Total Rows Changed, Unique Tables, Unique Notebooks
+  - **Performance Metrics**: Average Execution Time
+  - **Quality Metrics**: Error Count, Success Rate
+  - **Time Intelligence**: Operations Today
+
+### Advanced Data Type Configuration
+- Proper DateTime formatting for date columns
+- Numeric formatting with thousands separators
+- Relationship compatibility between string and date types
+- Python.NET 3.0 compatibility fixes
+
+### Historical Data Support
+- Custom timestamp support for creating historical test data
+- Time series data generation for realistic monitoring patterns
+- Business hour simulation and date distribution
 
 ## Key Features
 
 - **One file**: No complex installation required
 - **Data preservation**: Never overwrites existing data
 - **Auto-recovery**: Built-in timing safeguards for Fabric consistency
-- **Complete BI solution**: Ready-to-use Power BI semantic model
+- **Complete BI solution**: Ready-to-use Power BI semantic model with organized measures
 - **Smart setup**: Only creates what doesn't exist
+- **Historical data**: Support for backdated entries and test data generation
 
 ## Core Methods
 
@@ -64,7 +83,8 @@ logger.log_operation(
     rows_after=1200,
     execution_time=5.2,
     message="Operation details",
-    error_message="Error if any"
+    error_message="Error if any",
+    custom_timestamp=datetime(2025, 8, 15, 14, 30)  # Optional: for historical data
 )
 ```
 
@@ -75,7 +95,7 @@ logger.get_statistics()          # Show summary stats
 logger.show_complete_status()    # Full framework status
 ```
 
-### Advanced
+### Advanced Semantic Model Management
 ```python
 # If semantic model creation fails during setup
 logger.create_semantic_model_when_ready()
@@ -90,33 +110,66 @@ df.show()
 
 ## DAX Measures Created
 
-The framework automatically creates these measures in your semantic model:
+The framework automatically creates these measures organized in folders:
 
+### Core Metrics
 - **Total Operations** - Count of all logged operations
-- **Total Rows Changed** - Sum of all row changes
-- **Average Execution Time** - Average operation duration
-- **Error Count** - Count of failed operations  
-- **Success Rate** - Percentage of successful operations
-- **Operations Today** - Today's operation count
+- **Total Rows Changed** - Sum of all row changes  
 - **Unique Tables** - Number of distinct tables processed
 - **Unique Notebooks** - Number of distinct notebooks run
 
+### Performance Metrics
+- **Average Execution Time** - Average operation duration in seconds
+
+### Quality Metrics
+- **Error Count** - Count of failed operations
+- **Success Rate** - Percentage of successful operations
+
+### Time Intelligence
+- **Operations Today** - Today's operation count
+
+## Data Type Configuration
+
+The framework automatically configures proper data types:
+
+- **Date columns**: DateTime format with calendar icons
+- **Numeric columns**: Proper formatting with thousands separators
+- **String columns**: Text data type
+- **Boolean columns**: True/false values
+- **Relationship columns**: Compatible types for proper joins
+
 ## Timing Safeguards
 
-The framework includes built-in protections for Fabric's eventual consistency:
+Built-in protections for Fabric's eventual consistency:
 
 - **Table verification** before semantic model creation
 - **Retry logic** for failed operations
 - **Recovery methods** for timing issues
 - **Graceful degradation** when components aren't ready
 
+## Test Data Generation
+
+Create realistic test data with historical patterns:
+
+```python
+# Import test data utilities
+from builtin.test_data_creation import setup_complete_test_environment, quick_test
+
+# Quick test with minimal data
+logger = quick_test("TestProject")
+
+# Comprehensive test environment with historical data
+logger = setup_complete_test_environment("TestProject")
+```
+
 ## Use Cases
 
-- **ETL Monitoring**: Track data pipeline operations
+- **ETL Monitoring**: Track data pipeline operations with proper time intelligence
 - **Quality Assurance**: Monitor data loads and transformations  
 - **Performance Tracking**: Analyze execution times and bottlenecks
 - **Error Reporting**: Centralized error tracking across notebooks
 - **Compliance**: Audit trail of all data operations
+- **Historical Analysis**: Time-based reporting with proper date dimensions
 
 ## Requirements
 
@@ -128,17 +181,18 @@ The framework includes built-in protections for Fabric's eventual consistency:
 
 ```
 your-workspace/
-├── fabric_logging_utils.py    # The complete framework
-└── your_notebook.py           # Your code using the framework
+├── builtin/
+│   ├── fabric_logging_utils.py     # The complete framework
+│   ├── usage_examples.py           # Comprehensive usage examples
+│   └── test_data_creation.py       # Test data generation utilities
+└── your_notebook.py                # Your code using the framework
 ```
-
-That's it! Everything you need is in the single file.
 
 ## Example Output
 
 ```
 ============================================================
-FABRIC LOGGING FRAMEWORK
+FABRIC LOGGING FRAMEWORK v3.3.0
 ============================================================
 
 Project Configuration:
@@ -166,8 +220,12 @@ Verifying Tables:
   All tables verified and accessible
 
 Semantic Model Setup:
-  Semantic model 'SM_MyProject_Monitoring' already exists
-  Tip: Use enhance_semantic_model() to add relationships/measures
+  Configuring data types and formatting...
+  Marked dim_date as date table
+  Data types and formatting configured successfully
+  Updated: Total Operations -> Core Metrics
+  Updated: Average Execution Time -> Performance Metrics
+  Summary: Created 0, Updated 8
 
 ============================================================
 SETUP COMPLETE
@@ -175,6 +233,31 @@ SETUP COMPLETE
 
 Ready to log operations! Use: logger.log_operation(...)
 ```
+
+## Troubleshooting
+
+### Common Issues
+
+**Python.NET Enum Errors**: The framework automatically handles Python.NET 3.0 compatibility by using proper DataType enums.
+
+**Relationship Compatibility**: Date relationships use compatible string types while maintaining DateTime functionality through separate columns.
+
+**Missing Measures**: Use `logger.enhance_semantic_model()` to add relationships and measures to existing models.
+
+**Tables Not Ready**: The framework includes retry logic and table verification. Use `logger.create_semantic_model_when_ready()` if needed.
+
+### Getting Help
+
+- Check `logger.show_complete_status()` for framework health
+- Use `logger.get_statistics()` for current data summary
+- Enable detailed logging to see configuration steps
+
+## Version History
+
+- **v3.3.0** - Enhanced semantic model with measure folders, proper data types, and historical data support
+- **v3.2.0** - Added timing safeguards and recovery methods
+- **v3.1.0** - Initial semantic model automation
+- **v3.0.0** - Complete framework with relationship management
 
 ## License
 
