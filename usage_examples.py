@@ -3,7 +3,8 @@
 # Copy these examples to your Fabric notebooks
 
 # First, import the framework
-from fabric_logging_utils import FabricLogger, time_operation
+import builtin.fabric_logging_utils as fabric_logging_utils
+from builtin.fabric_logging_utils import FabricLogger, time_operation
 
 # =============================================================================
 # EXAMPLE 1: Basic Setup and Usage
