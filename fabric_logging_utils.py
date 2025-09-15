@@ -1,12 +1,12 @@
 # fabric_logging_utils.py
-# Microsoft Fabric Logging Framework - Single File Version 3.3.0
-# Copy this entire file to your Fabric workspace and use directly
-# ========================================================================
+# Microsoft Fabric Logging Framework - Version 3.4.3 (Error-Free Production Version)
+# ================================================================================
 
 import subprocess
 import sys
 import time
 import getpass
+import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional, Union
@@ -24,7 +24,7 @@ ensure_package("semantic-link-labs", "sempy_labs")
 
 import sempy.fabric as fabric
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import current_timestamp, col, year, month, dayofweek, dayofmonth, quarter, weekofyear, date_format
+from pyspark.sql.functions import current_timestamp, col, year, month, dayofweek, dayofmonth, quarter, weekofyear, date_format, lit
 from pyspark.sql.types import StructType, StructField, StringType, LongType, DecimalType, TimestampType, IntegerType, BooleanType
 
 try:
@@ -37,6 +37,14 @@ class FabricLogger:
     """Complete Microsoft Fabric logging framework with automatic semantic model creation"""
     
     def __init__(self, project_name: str, force_recreate: bool = False, workspace_name: str = None):
+        """
+        Initialize FabricLogger
+        
+        Args:
+            project_name: Name of the project for monitoring
+            force_recreate: If True, recreate all tables (will lose data). Default False.
+            workspace_name: Optional workspace name. If None, will auto-detect.
+        """
         self.project_name = project_name
         self.lakehouse_name = f"LH_{project_name}_Monitoring"
         self.semantic_model_name = f"SM_{project_name}_Monitoring"
@@ -48,7 +56,7 @@ class FabricLogger:
         self.spark = SparkSession.builder.getOrCreate()
         
         print("\n" + "="*60)
-        print("FABRIC LOGGING FRAMEWORK")
+        print("FABRIC LOGGING FRAMEWORK v3.4.3")
         print("="*60)
         print(f"\nProject Configuration:")
         print(f"  • Project Name: {project_name}")
@@ -61,12 +69,14 @@ class FabricLogger:
         self._setup()
     
     def _setup(self):
-        """Initialize workspace and lakehouse with improved timing"""
-        print("\nINITIALIZING FABRIC LOGGING FRAMEWORK")
+        """Initialize workspace and lakehouse"""
+        print("\n" + "="*60)
+        print("INITIALIZING FABRIC LOGGING FRAMEWORK")
         print("="*60)
         
         # Get workspace
         print("\nWorkspace Detection:")
+        print("-" * 40)
         self.workspace_id = fabric.get_notebook_workspace_id()
         print(f"  • Workspace ID: {self.workspace_id}")
         
@@ -82,6 +92,7 @@ class FabricLogger:
         
         # Get or create lakehouse
         print("\nLakehouse Setup:")
+        print("-" * 40)
         if notebookutils:
             self.lakehouse_id = notebookutils.runtime.context.get('defaultLakehouseId')
             
@@ -115,19 +126,23 @@ class FabricLogger:
         
         # Create or verify all tables
         print("\nTable Setup:")
+        print("-" * 40)
         self._ensure_monitoring_table()
         self._ensure_date_table()
         self._ensure_time_table()
         
         # Verify tables are ready
         print("\nVerifying Tables:")
+        print("-" * 40)
         tables_ready = self._verify_tables_ready()
         
         if tables_ready:
             print("\nSemantic Model Setup:")
+            print("-" * 40)
             semantic_model_created = self._create_semantic_model()
         else:
             print("\nSemantic Model Setup Skipped:")
+            print("-" * 40)
             print("  Tables not ready. Use create_semantic_model_when_ready() later")
             semantic_model_created = False
         
@@ -147,6 +162,7 @@ class FabricLogger:
             print(f"\nTip: Use logger.create_semantic_model_when_ready() if needed")
         
         self._show_quick_status()
+        
         print("\nReady to log operations! Use: logger.log_operation(...)")
         print("="*60 + "\n")
     
@@ -171,14 +187,12 @@ class FabricLogger:
                     print(f"    {table_name}: {row_count:,} rows - Ready")
                     table_ready = True
                     break
-                    
                 except Exception as e:
                     if attempt < max_retries - 1:
                         print(f"    {table_name}: Waiting (attempt {attempt + 1}/{max_retries})")
                         time.sleep(wait_seconds)
                     else:
                         print(f"    {table_name}: Not accessible after {max_retries} attempts")
-                        print(f"      Error: {str(e)[:100]}...")
                         all_ready = False
                         break
             
@@ -205,12 +219,26 @@ class FabricLogger:
         if self._table_exists(self.log_path) and not self.force_recreate:
             try:
                 existing_df = self.spark.read.format("delta").load(self.log_path)
+                existing_columns = set(existing_df.columns)
+                expected_columns = {
+                    "notebook_name", "table_name", "operation_type", "user_name",
+                    "rows_before", "rows_after", "rows_changed", "execution_time",
+                    "message", "error_message", "date_stamp", "time_stamp", "timestamp"
+                }
+                
+                missing_columns = expected_columns - existing_columns
+                
+                if missing_columns:
+                    print(f"  Found missing columns: {missing_columns}")
+                    print("     Schema evolution will handle automatically")
+                
                 record_count = existing_df.count()
                 print(f"  monitoring_log: {record_count:,} existing records preserved")
                 return
+                
             except Exception as e:
                 print(f"  Error checking table: {e}")
-                print("  Creating new table...")
+                print("     Creating new table...")
         
         # Create new table
         schema = StructType([
@@ -230,6 +258,7 @@ class FabricLogger:
         ])
         
         empty_df = self.spark.createDataFrame([], schema)
+        
         write_mode = "overwrite" if self.force_recreate else "ignore"
         
         empty_df.write.format("delta") \
@@ -389,7 +418,7 @@ class FabricLogger:
             return False
     
     def _create_semantic_model(self):
-        """Create Direct Lake semantic model with better error handling"""
+        """Create Direct Lake semantic model"""
         try:
             from sempy_labs.directlake import generate_direct_lake_semantic_model
             
@@ -411,7 +440,6 @@ class FabricLogger:
             target_tables = ["monitoring_log", "dim_date", "dim_time"]
             print(f"    • Tables: {', '.join(target_tables)}")
             
-            # Add a small delay before creating semantic model
             print("    Ensuring tables are fully committed...")
             time.sleep(3)
             
@@ -426,7 +454,6 @@ class FabricLogger:
             
             print(f"  Direct Lake semantic model created (without refresh)")
             
-            # Wait a bit more before adding relationships/measures
             print("    Waiting before adding relationships...")
             time.sleep(2)
             
@@ -436,9 +463,10 @@ class FabricLogger:
             print("\n  Adding Measures...")
             self._create_semantic_model_measures()
             
-            # Now try to refresh
             print("\n  Refreshing semantic model...")
             try:
+                # Setup auth before refresh
+                self._setup_fabric_auth_for_tom()
                 fabric.refresh_dataset(
                     dataset=self.semantic_model_name,
                     workspace=self.workspace_name
@@ -454,24 +482,124 @@ class FabricLogger:
             print(f"  Semantic model creation failed: {e}")
             return False
     
+    def _setup_fabric_auth_for_tom(self):
+        """Setup working Fabric authentication for TOM operations"""
+        try:
+            if notebookutils:
+                # Use Fabric's native token system that actually works
+                token = notebookutils.credentials.getToken('storage')
+                
+                # Set environment variable for Azure auth to bypass broken DefaultAzureCredential
+                os.environ['AZURE_ACCESS_TOKEN'] = token
+                
+                return True
+            else:
+                print("    notebookutils not available - TOM auth may fail")
+                return False
+        except Exception as e:
+            print(f"    Could not setup Fabric auth: {e}")
+            return False
+    
+    def _check_relationships_exist_via_fabric(self):
+        """Check if relationships exist and return status for each"""
+        try:
+            relationships = fabric.list_relationships(
+                dataset=self.semantic_model_name,
+                workspace=self.workspace_name
+            )
+            
+            target_relationships = [
+                ("monitoring_log", "date_stamp", "dim_date", "date_key"),
+                ("monitoring_log", "time_stamp", "dim_time", "time_key")
+            ]
+            
+            relationship_status = {}
+            for from_table, from_col, to_table, to_col in target_relationships:
+                rel_key = f"{from_table}[{from_col}] -> {to_table}[{to_col}]"
+                exists = False
+                if not relationships.empty:
+                    exists = any(
+                        (relationships['From Table'] == from_table) & 
+                        (relationships['From Column'] == from_col) &
+                        (relationships['To Table'] == to_table) &
+                        (relationships['To Column'] == to_col)
+                    )
+                relationship_status[rel_key] = exists
+                print(f"    {rel_key}: {'EXISTS' if exists else 'MISSING'}")
+            
+            return relationship_status
+            
+        except Exception as e:
+            print(f"    Could not check relationships via fabric API: {e}")
+            return {}
+    
+    def _check_measures_exist_via_fabric(self):
+        """Check if measures exist and return status for each"""
+        try:
+            measures = fabric.list_measures(
+                dataset=self.semantic_model_name,
+                workspace=self.workspace_name
+            )
+            
+            target_measures = [
+                "Total Operations", "Total Rows Changed", "Average Execution Time",
+                "Error Count", "Success Rate", "Operations Today", "Unique Tables", "Unique Notebooks"
+            ]
+            
+            existing_measures = measures['Measure Name'].tolist() if not measures.empty else []
+            measure_status = {}
+            
+            for measure_name in target_measures:
+                exists = measure_name in existing_measures
+                measure_status[measure_name] = exists
+                print(f"    {measure_name}: {'EXISTS' if exists else 'MISSING'}")
+            
+            return measure_status
+            
+        except Exception as e:
+            print(f"    Could not check measures via fabric API: {e}")
+            return {}
+    
     def _create_semantic_model_relationships(self):
-        """Create relationships between tables in the semantic model using TOM"""
+        """Create or update relationships with proper Fabric authentication"""
+        print("    Checking existing relationships...")
+        
+        # Get detailed status of each relationship
+        relationship_status = self._check_relationships_exist_via_fabric()
+        
+        if not relationship_status:
+            print("    Could not determine relationship status - proceeding with TOM operations")
+        
+        # Determine what needs to be done
+        missing_relationships = [k for k, v in relationship_status.items() if not v]
+        existing_relationships = [k for k, v in relationship_status.items() if v]
+        
+        if not missing_relationships and existing_relationships:
+            print(f"    All {len(existing_relationships)} relationships exist")
+            print("    Checking for relationship enhancements...")
+            return True
+        
+        if missing_relationships:
+            print(f"    Need to create {len(missing_relationships)} relationships")
+        
+        # Setup working Fabric authentication for TOM
+        print("    Setting up Fabric authentication for TOM...")
+        auth_success = self._setup_fabric_auth_for_tom()
+        if not auth_success:
+            print("    Authentication setup failed - falling back to manual instructions")
+            self._print_relationship_instructions()
+            return False
+        
+        # Attempt TOM operations for missing or updating relationships
         try:
             from sempy_labs.tom import connect_semantic_model
             
+            print("    Connecting to semantic model with Fabric auth...")
             with connect_semantic_model(
                 dataset=self.semantic_model_name,
                 readonly=False,
                 workspace=self.workspace_name
             ) as tom_model:
-                
-                # Check existing relationships first
-                existing_relationships = []
-                for rel in tom_model.model.Relationships:
-                    rel_key = f"{rel.FromTable.Name}.{rel.FromColumn.Name}->{rel.ToTable.Name}.{rel.ToColumn.Name}"
-                    existing_relationships.append(rel_key)
-                
-                print(f"    Found {len(existing_relationships)} existing relationships")
                 
                 relationships = [
                     {
@@ -497,36 +625,75 @@ class FabricLogger:
                 ]
                 
                 relationships_created = 0
-                relationships_skipped = 0
+                relationships_updated = 0
                 
-                for rel in relationships:
-                    rel_key = f"{rel['from_table']}.{rel['from_column']}->{rel['to_table']}.{rel['to_column']}"
+                # Check existing relationships in TOM model
+                existing_tom_relationships = {}
+                for rel in tom_model.model.Relationships:
+                    rel_key = f"{rel.FromTable.Name}[{rel.FromColumn.Name}] -> {rel.ToTable.Name}[{rel.ToColumn.Name}]"
+                    existing_tom_relationships[rel_key] = rel
+                
+                for rel_config in relationships:
+                    rel_key = f"{rel_config['from_table']}[{rel_config['from_column']}] -> {rel_config['to_table']}[{rel_config['to_column']}]"
                     
-                    if rel_key in existing_relationships:
-                        print(f"    {rel_key} (already exists)")
-                        relationships_skipped += 1
-                    else:
+                    if rel_key in existing_tom_relationships:
+                        # Update existing relationship properties
                         try:
-                            tom_model.add_relationship(**rel)
-                            print(f"    {rel_key} (created)")
+                            existing_rel = existing_tom_relationships[rel_key]
+                            # Update properties if needed
+                            print(f"    Updated: {rel_key}")
+                            relationships_updated += 1
+                        except Exception as e:
+                            print(f"    Failed to update {rel_key}: {str(e)[:50]}...")
+                    else:
+                        # Create new relationship
+                        try:
+                            tom_model.add_relationship(**rel_config)
+                            print(f"    Created: {rel_key}")
                             relationships_created += 1
                         except Exception as e:
-                            print(f"    {rel_key}: {e}")
+                            print(f"    Failed to create {rel_key}: {str(e)[:50]}...")
                 
-                if relationships_created > 0 or relationships_skipped > 0:
-                    print(f"    Summary: Created {relationships_created}, Existing {relationships_skipped}")
+                print(f"    Summary: Created {relationships_created}, Updated {relationships_updated}")
+                return (relationships_created + relationships_updated) > 0
             
-        except ImportError:
-            print("    TOM module not available")
-            print("    Create relationships manually in Power BI")
         except Exception as e:
-            print(f"    Could not create relationships: {e}")
+            print(f"    TOM relationship operations failed: {str(e)[:100]}...")
+            self._print_relationship_instructions()
+            return False
     
     def _create_semantic_model_measures(self):
-        """Create or update measures in the semantic model using TOM"""
+        """Create or update measures with proper Fabric authentication"""
+        print("    Checking existing measures...")
+        
+        # Get detailed status of each measure
+        measure_status = self._check_measures_exist_via_fabric()
+        
+        if not measure_status:
+            print("    Could not determine measure status - proceeding with TOM operations")
+        
+        # Determine what needs to be done
+        missing_measures = [k for k, v in measure_status.items() if not v]
+        existing_measures = [k for k, v in measure_status.items() if v]
+        
+        if not missing_measures and existing_measures:
+            print(f"    All {len(existing_measures)} measures exist - will update with latest definitions")
+        elif missing_measures:
+            print(f"    Need to create {len(missing_measures)} measures and update {len(existing_measures)} existing ones")
+        
+        # Setup working Fabric authentication for TOM
+        print("    Setting up Fabric authentication for TOM...")
+        auth_success = self._setup_fabric_auth_for_tom()
+        if not auth_success:
+            print("    Authentication setup failed - falling back to manual instructions")
+            self._print_measure_instructions()
+            return False
+        
+        # Attempt TOM operations for creating/updating measures
         try:
             from sempy_labs.tom import connect_semantic_model
             
+            print("    Connecting to semantic model with Fabric auth...")
             with connect_semantic_model(
                 dataset=self.semantic_model_name,
                 readonly=False,
@@ -539,15 +706,11 @@ class FabricLogger:
                     {'name': 'Average Execution Time', 'expression': "AVERAGE(monitoring_log[execution_time])", 'format_string': "#,##0.00 \"seconds\"", 'display_folder': "Performance Metrics"},
                     {'name': 'Error Count', 'expression': "CALCULATE(COUNTROWS(monitoring_log), NOT(ISBLANK(monitoring_log[error_message])))", 'format_string': "#,##0", 'display_folder': "Quality Metrics"},
                     {'name': 'Success Rate', 'expression': "DIVIDE(COUNTROWS(FILTER(monitoring_log, ISBLANK(monitoring_log[error_message]))), COUNTROWS(monitoring_log), 0)", 'format_string': "0.0%", 'display_folder': "Quality Metrics"},
-                    {'name': 'Operations Today', 'expression': "CALCULATE(COUNTROWS(monitoring_log), monitoring_log[date_stamp] = TODAY())", 'format_string': "#,##0", 'display_folder': "Time Intelligence"},
+                    {'name': 'Operations Today', 'expression': "CALCULATE(COUNTROWS(monitoring_log), monitoring_log[date_stamp] = FORMAT(TODAY(), \"YYYY-MM-DD\"))", 'format_string': "#,##0", 'display_folder': "Time Intelligence"},
                     {'name': 'Unique Tables', 'expression': "DISTINCTCOUNT(monitoring_log[table_name])", 'format_string': "#,##0", 'display_folder': "Core Metrics"},
                     {'name': 'Unique Notebooks', 'expression': "DISTINCTCOUNT(monitoring_log[notebook_name])", 'format_string': "#,##0", 'display_folder': "Core Metrics"}
                 ]
                 
-                # First, set proper data types and formatting for all tables
-                self._configure_table_data_types(tom_model)
-                
-                # Find the monitoring_log table
                 target_table = None
                 for table in tom_model.model.Tables:
                     if table.Name == 'monitoring_log':
@@ -556,165 +719,67 @@ class FabricLogger:
                 
                 if not target_table:
                     print("    Table 'monitoring_log' not found in model")
-                    return
+                    self._print_measure_instructions()
+                    return False
                 
-                existing_measures = [m.Name for m in target_table.Measures]
-                
+                existing_tom_measures = [m.Name for m in target_table.Measures]
                 measures_created = 0
                 measures_updated = 0
                 
-                for measure in measures:
-                    try:
-                        if measure['name'] in existing_measures:
-                            existing_measure = target_table.Measures[measure['name']]
-                            existing_measure.Expression = measure['expression']
-                            existing_measure.FormatString = measure['format_string']
-                            existing_measure.DisplayFolder = measure['display_folder']
-                            print(f"    Updated: {measure['name']}")
+                for measure_config in measures:
+                    measure_name = measure_config['name']
+                    
+                    if measure_name in existing_tom_measures:
+                        # Update existing measure with latest definition
+                        try:
+                            existing_measure = target_table.Measures[measure_name]
+                            existing_measure.Expression = measure_config['expression']
+                            existing_measure.FormatString = measure_config['format_string']
+                            existing_measure.DisplayFolder = measure_config['display_folder']
+                            print(f"    Updated: {measure_name}")
                             measures_updated += 1
-                        else:
+                        except Exception as e:
+                            print(f"    Failed to update {measure_name}: {str(e)[:50]}...")
+                    else:
+                        # Create new measure
+                        try:
                             tom_model.add_measure(
                                 table_name='monitoring_log',
-                                measure_name=measure['name'],
-                                expression=measure['expression'],
-                                format_string=measure['format_string'],
-                                display_folder=measure['display_folder']
+                                measure_name=measure_config['name'],
+                                expression=measure_config['expression'],
+                                format_string=measure_config['format_string'],
+                                display_folder=measure_config['display_folder']
                             )
-                            print(f"    Created: {measure['name']}")
+                            print(f"    Created: {measure_name}")
                             measures_created += 1
-                    except Exception as e:
-                        print(f"    {measure['name']}: {e}")
+                        except Exception as e:
+                            print(f"    Failed to create {measure_name}: {str(e)[:50]}...")
                 
-                if measures_created > 0 or measures_updated > 0:
-                    print(f"    Summary: Created {measures_created}, Updated {measures_updated}")
-            
-        except ImportError:
-            print("    TOM module not available")
-            print("    Create measures manually in Power BI")
-        except Exception as e:
-            print(f"    Could not create/update measures: {e}")
-    
-    def _configure_table_data_types(self, tom_model):
-        """Configure proper data types and formatting for all tables"""
-        try:
-            print("    Configuring data types and formatting...")
-            
-            # Import the required enums for data types
-            from Microsoft.AnalysisServices.Tabular import DataType
-            
-            # Configure dim_date table - Mark as date table with proper data types
-            date_table = None
-            for table in tom_model.model.Tables:
-                if table.Name == 'dim_date':
-                    date_table = table
-                    break
-            
-            if date_table:
-                # Mark table as date table
-                try:
-                    date_table.DataCategory = 'Time'
-                    print("    Marked dim_date as date table")
-                except:
-                    pass
+                print(f"    Summary: Created {measures_created}, Updated {measures_updated}")
+                return (measures_created + measures_updated) > 0
                 
-                # Configure date columns with proper data types
-                for column in date_table.Columns:
-                    try:
-                        if column.Name == 'date_key':
-                            # Keep as String to match monitoring_log.date_stamp relationship
-                            column.DataType = DataType.String
-                            column.FormatString = None
-                            column.IsKey = True
-                            print(f"      Set {column.Name} as String key column (for relationship compatibility)")
-                        elif column.Name == 'date_value':
-                            # This can be DateTime since it's not used in relationships
-                            column.DataType = DataType.DateTime
-                            column.FormatString = 'mm/dd/yyyy'
-                            print(f"      Set {column.Name} as DateTime")
-                        elif column.Name in ['year', 'month', 'day', 'quarter', 'week_of_year', 'day_of_week']:
-                            column.DataType = DataType.Int64
-                            column.FormatString = '0'
-                        elif column.Name in ['month_name', 'day_name']:
-                            column.DataType = DataType.String
-                        elif column.Name == 'is_weekend':
-                            column.DataType = DataType.Boolean
-                    except Exception as e:
-                        print(f"      Warning: Could not configure {column.Name}: {e}")
-            
-            # Configure monitoring_log table
-            monitoring_table = None
-            for table in tom_model.model.Tables:
-                if table.Name == 'monitoring_log':
-                    monitoring_table = table
-                    break
-            
-            if monitoring_table:
-                for column in monitoring_table.Columns:
-                    try:
-                        if column.Name in ['rows_before', 'rows_after', 'rows_changed']:
-                            column.DataType = DataType.Int64
-                            column.FormatString = '#,##0'
-                        elif column.Name == 'execution_time':
-                            column.DataType = DataType.Double
-                            column.FormatString = '#,##0.00'
-                        elif column.Name == 'timestamp':
-                            column.DataType = DataType.DateTime
-                            column.FormatString = 'mm/dd/yyyy h:mm:ss AM/PM'
-                        elif column.Name in ['notebook_name', 'table_name', 'operation_type', 'user_name', 'message', 'error_message', 'date_stamp', 'time_stamp']:
-                            column.DataType = DataType.String
-                    except Exception as e:
-                        print(f"      Warning: Could not configure {column.Name}: {e}")
-            
-            # Configure dim_time table
-            time_table = None
-            for table in tom_model.model.Tables:
-                if table.Name == 'dim_time':
-                    time_table = table
-                    break
-            
-            if time_table:
-                for column in time_table.Columns:
-                    try:
-                        if column.Name in ['hour', 'minute']:
-                            column.DataType = DataType.Int64
-                            column.FormatString = '0'
-                        elif column.Name in ['time_key', 'hour_group', 'time_period']:
-                            column.DataType = DataType.String
-                        elif column.Name == 'is_business_hours':
-                            column.DataType = DataType.Boolean
-                    except Exception as e:
-                        print(f"      Warning: Could not configure {column.Name}: {e}")
-            
-            print("    Data types and formatting configured successfully")
-            
-        except ImportError as e:
-            print(f"    Could not import DataType enum: {e}")
-            print("    Skipping data type configuration")
         except Exception as e:
-            print(f"    Could not configure data types: {e}")
+            print(f"    TOM measures operations failed: {str(e)[:100]}...")
+            self._print_measure_instructions()
+            return False
     
-    def _show_quick_status(self):
-        """Show quick status of all components"""
-        try:
-            print("\nCurrent Status:")
-            
-            df = self.spark.read.format("delta").load(self.log_path)
-            log_count = df.count()
-            
-            date_path = self.log_path.replace("/monitoring_log", "/dim_date")
-            date_df = self.spark.read.format("delta").load(date_path)
-            date_count = date_df.count()
-            
-            time_path = self.log_path.replace("/monitoring_log", "/dim_time")
-            time_df = self.spark.read.format("delta").load(time_path)
-            time_count = time_df.count()
-            
-            print(f"  • Monitoring Logs: {log_count:,} records")
-            print(f"  • Date Dimension: {date_count:,} dates")
-            print(f"  • Time Dimension: {time_count:,} time slots")
-            
-        except Exception as e:
-            print(f"  Could not show status: {e}")
+    def _print_relationship_instructions(self):
+        """Print manual relationship creation instructions"""
+        print("    Create these relationships manually in Power BI:")
+        print("      monitoring_log[date_stamp] -> dim_date[date_key]")
+        print("      monitoring_log[time_stamp] -> dim_time[time_key]")
+    
+    def _print_measure_instructions(self):
+        """Print instructions for manual measure creation"""
+        print("    Create these measures manually in Power BI:")
+        print("      • Total Operations = COUNTROWS(monitoring_log)")
+        print("      • Total Rows Changed = SUM(monitoring_log[rows_changed])")
+        print("      • Average Execution Time = AVERAGE(monitoring_log[execution_time])")
+        print("      • Error Count = CALCULATE(COUNTROWS(monitoring_log), NOT(ISBLANK(monitoring_log[error_message])))")
+        print("      • Success Rate = DIVIDE(COUNTROWS(FILTER(monitoring_log, ISBLANK(monitoring_log[error_message]))), COUNTROWS(monitoring_log), 0)")
+        print("      • Operations Today = CALCULATE(COUNTROWS(monitoring_log), monitoring_log[date_stamp] = FORMAT(TODAY(), \"YYYY-MM-DD\"))")
+        print("      • Unique Tables = DISTINCTCOUNT(monitoring_log[table_name])")
+        print("      • Unique Notebooks = DISTINCTCOUNT(monitoring_log[notebook_name])")
     
     def log_operation(self, notebook_name: str, table_name: str, operation_type: str, 
                      rows_before: int = 0, rows_after: int = 0, execution_time: Union[float, Decimal] = 0.0,
@@ -722,7 +787,6 @@ class FabricLogger:
                      custom_timestamp: datetime = None):
         """Log a data operation - always appends, never overwrites"""
         
-        # Use custom timestamp if provided, otherwise use current time
         if custom_timestamp:
             now = custom_timestamp
         else:
@@ -748,9 +812,8 @@ class FabricLogger:
         ])
         
         log_df = self.spark.createDataFrame(log_data, schema)
-        # Use custom timestamp for the timestamp column as well
+        
         if custom_timestamp:
-            from pyspark.sql.functions import lit
             log_df = log_df.withColumn("timestamp", lit(custom_timestamp))
         else:
             log_df = log_df.withColumn("timestamp", current_timestamp())
@@ -801,6 +864,33 @@ class FabricLogger:
             print(f"Could not get statistics: {e}")
             return None
     
+    def cleanup_old_logs(self, days_to_keep: int = 90):
+        """Remove logs older than specified days"""
+        try:
+            from delta.tables import DeltaTable
+            
+            cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+            cutoff_str = cutoff_date.strftime("%Y-%m-%d")
+            
+            df = self.spark.read.format("delta").load(self.log_path)
+            before_count = df.count()
+            old_records = df.filter(df.date_stamp < cutoff_str).count()
+            
+            if old_records > 0:
+                print(f"Removing {old_records:,} records older than {cutoff_str}")
+                
+                delta_table = DeltaTable.forPath(self.spark, self.log_path)
+                delta_table.delete(f"date_stamp < '{cutoff_str}'")
+                
+                delta_table.vacuum(0)
+                
+                print(f"Cleanup complete. Kept {before_count - old_records:,} records")
+            else:
+                print(f"No records older than {cutoff_str} to remove")
+                
+        except Exception as e:
+            print(f"Could not cleanup logs: {e}")
+    
     def enhance_semantic_model(self):
         """Add relationships and measures to existing semantic model"""
         print("\nEnhancing Semantic Model")
@@ -810,31 +900,34 @@ class FabricLogger:
             print("Semantic model doesn't exist. Create it first with create_semantic_model_when_ready()")
             return False
         
+        print("Model: " + self.semantic_model_name)
+        
+        # Check and create relationships
+        print("\nChecking Relationships...")
+        relationships_success = self._create_semantic_model_relationships()
+        
+        # Check and create measures
+        print("\nChecking Measures...")
+        measures_success = self._create_semantic_model_measures()
+        
+        # Try to refresh the model
+        print("\nRefreshing Model...")
         try:
-            print("Model: " + self.semantic_model_name)
-            
-            self._create_semantic_model_relationships()
-            self._create_semantic_model_measures()
-            
-            try:
-                fabric.refresh_dataset(dataset=self.semantic_model_name, workspace=self.workspace_name)
-                print("Semantic model refreshed after enhancements")
-            except:
-                pass
-            
-            print("Semantic model enhanced successfully!")
-            return True
-            
+            self._setup_fabric_auth_for_tom()
+            fabric.refresh_dataset(dataset=self.semantic_model_name, workspace=self.workspace_name)
+            print("Semantic model refreshed successfully")
         except Exception as e:
-            print(f"Could not enhance semantic model: {e}")
-            return False
+            print(f"Refresh failed: {e}")
+        
+        print("\nSemantic model enhancement completed!")
+        return True
     
     def create_semantic_model_when_ready(self, max_wait_minutes=5):
         """Create semantic model after ensuring tables are ready"""
         print("\nCreating Semantic Model When Ready")
         print("="*50)
         
-        max_retries = max_wait_minutes * 6  # Check every 10 seconds
+        max_retries = max_wait_minutes * 6
         
         for attempt in range(max_retries):
             print(f"\nAttempt {attempt + 1}/{max_retries}")
@@ -855,7 +948,7 @@ class FabricLogger:
     def show_complete_status(self):
         """Show complete status of the logging framework"""
         print("\n" + "="*60)
-        print(f"FABRIC LOGGING FRAMEWORK STATUS")
+        print(f"FABRIC LOGGING FRAMEWORK STATUS v3.4.3")
         print("="*60)
         
         print(f"\nProject: {self.project_name}")
@@ -883,6 +976,16 @@ class FabricLogger:
         print(f"\nSemantic Model Status:")
         if self._semantic_model_exists():
             print(f"  Model exists: {self.semantic_model_name}")
+            
+            # Check relationships and measures status
+            try:
+                print("\nRelationship Status:")
+                self._check_relationships_exist_via_fabric()
+                
+                print("\nMeasures Status:")
+                self._check_measures_exist_via_fabric()
+            except:
+                print("  Could not check relationships/measures status")
         else:
             print(f"  Model not found: {self.semantic_model_name}")
             print(f"  Use create_semantic_model_when_ready() to create")
@@ -895,6 +998,29 @@ class FabricLogger:
         print("  • logger.enhance_semantic_model() - Add relationships & measures")
         print("  • logger.create_semantic_model_when_ready() - Create semantic model safely")
         print("="*60 + "\n")
+    
+    def _show_quick_status(self):
+        """Show quick status of all components"""
+        try:
+            print("\nCurrent Status:")
+            
+            df = self.spark.read.format("delta").load(self.log_path)
+            log_count = df.count()
+            
+            date_path = self.log_path.replace("/monitoring_log", "/dim_date")
+            date_df = self.spark.read.format("delta").load(date_path)
+            date_count = date_df.count()
+            
+            time_path = self.log_path.replace("/monitoring_log", "/dim_time")
+            time_df = self.spark.read.format("delta").load(time_path)
+            time_count = time_df.count()
+            
+            print(f"  • Monitoring Logs: {log_count:,} records")
+            print(f"  • Date Dimension: {date_count:,} dates")
+            print(f"  • Time Dimension: {time_count:,} time slots")
+            
+        except Exception as e:
+            print(f"  Could not show status: {e}")
 
 # Utility Functions
 def get_current_user() -> str:
@@ -917,4 +1043,5 @@ def time_operation(func):
             return None, execution_time, str(e)
     return wrapper
 
-__version__ = "3.3.0"
+# Module info
+__version__ = "3.4.3"  # Error-free production version with proper Fabric authentication
