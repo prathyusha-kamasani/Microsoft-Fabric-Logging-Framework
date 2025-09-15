@@ -1044,4 +1044,4 @@ def time_operation(func):
     return wrapper
 
 # Module info
-__version__ = "3.4.3"  # Error-free production version with proper Fabric authentication
+__version__ = "3.4.3"  
