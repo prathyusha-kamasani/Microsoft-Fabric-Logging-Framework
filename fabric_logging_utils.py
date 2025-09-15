@@ -1,5 +1,5 @@
 # fabric_logging_utils.py
-# Microsoft Fabric Logging Framework - Version 3.4.3 (Error-Free Production Version)
+# Microsoft Fabric Logging Framework - Version 3.4.3
 # ================================================================================
 
 import subprocess
