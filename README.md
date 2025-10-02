@@ -44,6 +44,8 @@ logger.show_recent(10)
   - Relationships between fact and dimension tables
   - 8 pre-built DAX measures for monitoring
   - Power BI ready analytics
+  <img width="1167" height="665" alt="image" src="https://github.com/user-attachments/assets/d088dca4-a09f-4f11-b30c-a8d1650082a5" />
+
 
 ## Key Features
 
