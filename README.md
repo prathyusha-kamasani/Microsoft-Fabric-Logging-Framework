@@ -61,7 +61,7 @@ The semantic model includes these measures out of the box:
 - **Unique Tables** – Distinct tables processed
 - **Unique Notebooks** – Distinct notebooks run
 
-## API Reference
+## Method Reference
 
 ### Logging
 
