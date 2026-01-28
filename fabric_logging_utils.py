@@ -17,7 +17,13 @@ def ensure_package(package: str, import_name: str = None) -> None:
     try:
         __import__(import_name)
     except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", package, "--quiet"],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            print(f"Warning: Could not install {package}: {result.stderr}")
 
 # Dependencies
 ensure_package("semantic-link-labs", "sempy_labs")
